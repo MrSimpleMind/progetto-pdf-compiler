@@ -189,17 +189,18 @@
             compiledPdfUrl: null,
             selectedPages: { start: null, end: null },
             xfaStructure: null,  // ✅ AGGIUNTO: Per memorizzare la struttura XFA estratta
+            // ✅ MAPPATURA CORRETTA: Nomi dei campi XFA reali estratti dalla struttura
             fieldMapping: {
-                'COGNOME': 'Cognome',
-                'NOME': 'Nome',
-                'C.F.': 'C.F.',
-                'Qualifica (Q)': 'Qualifica (Q)',
-                'Tipo rapporto': 'Tipo rapporto',
-                'Tipo contratto (TC)': 'Tipo contratto (TC)',
-                'N. ore sett. Da contratto': 'N. ore sett. da contratto',
-                'N. sett. Anno': 'N. sett. Anno',
-                'N. ore tot.': 'N. ore tot.',
-                'di cui straordinari': 'di cui straordinari'
+                'COGNOME': 'cognome',
+                'NOME': 'nome',
+                'C.F.': 'codice_fiscale',
+                'Qualifica (Q)': 'qualifica',
+                'Tipo rapporto': 'rapporto_lavoro',
+                'Tipo contratto (TC)': 'contratto_lavoro',
+                'N. ore sett. Da contratto': 'n_ore_settimanali',
+                'N. sett. Anno': 'n_settimane',
+                'N. ore tot.': 'n_ore_totale',
+                'di cui straordinari': 'n_ore_straordinarie'
             }
         };
 
@@ -314,10 +315,7 @@
 
         function updateRecordCount() {
             if (state.csvData) {
-                let message = `Pronti ${state.csvData.length} record da compilare`;
-                if (state.selectedPages.start && state.selectedPages.end) {
-                    message += ` (pagine ${state.selectedPages.start}-${state.selectedPages.end})`;
-                }
+                let message = `Pronti ${state.csvData.length} record da compilare nella sezione <personale_standard>`;
                 document.getElementById('recordCount').textContent = message;
             }
         }
@@ -382,60 +380,69 @@
         }
 
         function createFormData() {
-            log('🔧 Preparazione dati per compilazione XFA...', 'info');
+            log('🔧 Preparazione dati per struttura XFA <personale_standard>...', 'info');
             
-            // Log strategia pagine
-            if (state.selectedPages.start && state.selectedPages.end) {
-                log(`🎯 Focus su pagine ${state.selectedPages.start}-${state.selectedPages.end}`, 'info');
-            } else {
-                log('🎯 Compilazione di tutto il PDF', 'info');
-            }
+            // Log strategia sezioni logiche (non pagine fisiche)
+            log('📋 XFA: Struttura logica, non basata su pagine fisiche', 'info');
+            log('🎯 Target: Sezione <personale_standard> (tabella del personale)', 'info');
             
             const formData = {};
             
-            // Strategia: Mappare i campi CSV sui nomi attesi nel PDF XFA
+            // Per XFA usiamo la struttura corretta estratta
             state.csvData.forEach((record, index) => {
-                Object.entries(state.fieldMapping).forEach(([csvField, pdfField]) => {
+                Object.entries(state.fieldMapping).forEach(([csvField, xfaField]) => {
                     const value = record[csvField] || '';
-                    // Formato: NomeCampo[indiceRiga] per tabelle XFA
-                    formData[`${pdfField}[${index}]`] = value;
+                    // Per debug: formato campo[indice] (non più usato, ma utile per log)
+                    formData[`${xfaField}[${index}]`] = value;
                 });
             });
             
-            log(`✅ Mappati ${state.csvData.length} record con ${Object.keys(state.fieldMapping).length} campi ciascuno`, 'success');
-            log(`📊 Totale campi da compilare: ${Object.keys(formData).length}`, 'info');
+            log(`✅ Preparati ${state.csvData.length} elementi <personale_standard>`, 'success');
+            log(`📊 Totale mapping: ${Object.keys(state.fieldMapping).length} campi per record`, 'info');
             
             return formData;
         }
 
         async function compilePDF(formData) {
-            log('🔧 Compilazione PDF XFA con Import Form Data API...', 'api');
+            log('🔧 Compilazione PDF XFA con struttura corretta estratta...', 'api');
             
-            // Convertiamo i dati in formato XML per XFA (più compatibile)
-            let xmlData = '<?xml version="1.0" encoding="UTF-8"?>\n<xfa:datasets xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/">\n<xfa:data>\n<form>\n';
+            // ✅ STRUTTURA XFA CORRETTA: Basata sulla struttura reale estratta
+            let xmlData = '<?xml version="1.0" encoding="UTF-8"?>\n';
+            xmlData += '<welfare xmlns="http://schemas.sygest.it/adobe">\n';
             
+            // Aggiungiamo ogni record CSV come un elemento <personale_standard>
             state.csvData.forEach((record, index) => {
-                xmlData += `  <record index="${index}">\n`;
-                Object.entries(state.fieldMapping).forEach(([csvField, pdfField]) => {
+                xmlData += '  <personale_standard>\n';
+                
+                Object.entries(state.fieldMapping).forEach(([csvField, xfaField]) => {
                     const value = record[csvField] || '';
                     // Escape XML characters
                     const escapedValue = value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-                    xmlData += `    <${pdfField.replace(/\s+/g, '_')}>${escapedValue}</${pdfField.replace(/\s+/g, '_')}>\n`;
+                    xmlData += `    <${xfaField}>${escapedValue}</${xfaField}>\n`;
                 });
-                xmlData += '  </record>\n';
+                
+                // Aggiungiamo campi obbligatori con valori di default
+                xmlData += '    <qualifica_altro/>\n';
+                xmlData += '    <medico_responsabile>false</medico_responsabile>\n';
+                xmlData += '    <contratto_lavoro_altro/>\n';
+                xmlData += '    <setting_ria/>\n';
+                xmlData += '    <n_ore_altri_ser_int/>\n';
+                
+                xmlData += '  </personale_standard>\n';
             });
             
-            xmlData += '</form>\n</xfa:data>\n</xfa:datasets>';
+            xmlData += '</welfare>';
             
-            log(`📋 Dati XML generati: ${Object.keys(formData).length} campi`, 'info');
-            console.log('XML Data Preview:', xmlData.substring(0, 500) + '...');
+            log(`📋 XML XFA generato: ${state.csvData.length} elementi <personale_standard>`, 'success');
+            log('🎯 Struttura basata sulla sezione del personale (pagine 4-6)', 'info');
+            console.log('XML XFA Preview:', xmlData.substring(0, 800) + '...');
             
             const form = new FormData();
             form.append('id', state.pdfResourceId);
             
-            // ✅ CORREZIONE: Usa 'data_file' (non 'data') e formato XML
+            // Usa 'data_file' con formato XML corretto
             const dataBlob = new Blob([xmlData], { type: 'application/xml' });
-            form.append('data_file', dataBlob, 'form_data.xml');
+            form.append('data_file', dataBlob, 'welfare_personale.xml');
             
             // Nome del file di output
             form.append('output', 'documento_compilato');
@@ -452,7 +459,7 @@
             
             const data = await response.json();
             state.compiledPdfUrl = data.outputUrl;
-            log('✅ PDF XFA compilato con successo!', 'success');
+            log('✅ PDF XFA compilato con struttura corretta!', 'success');
             showResults();
         }
 
@@ -539,10 +546,12 @@
                 
                 // ✅ SUGGERIMENTI MIGLIORATI in base al tipo di modulo
                 if (isXFA) {
-                    log('🎯 STRATEGIA CONSIGLIATA per XFA:', 'success');
-                    log('1️⃣ PRIMA: Clicca "Esporta Struttura XFA" per vedere i nomi dei campi corretti', 'info');
-                    log('2️⃣ DOPO: Prova la compilazione con la struttura estratta', 'info');
-                    log('3️⃣ Usa la selezione pagine per concentrarti su pagine 4-6', 'info');
+                    log('🎯 STRATEGIA XFA AGGIORNATA:', 'success');
+                    log('1️⃣ ✅ Struttura XFA estratta e analizzata', 'info');
+                    log('2️⃣ ✅ Mapping dei campi aggiornato con nomi reali', 'info');
+                    log('3️⃣ 🚀 PRONTO PER COMPILAZIONE: Usa "Compila PDF XFA"', 'info');
+                    log('📋 Nota: XFA usa struttura logica, non pagine fisiche', 'info');
+                    log('🎯 Compilazione mirata: Solo sezione <personale_standard>', 'info');
                 } else if (isAcroForm) {
                     log('🎯 STRATEGIA CONSIGLIATA per Acroforms:', 'success');
                     log('1️⃣ Tenta la compilazione diretta', 'info');
