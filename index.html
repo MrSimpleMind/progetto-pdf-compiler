@@ -407,16 +407,31 @@
         async function compilePDF(formData) {
             log('🔧 Compilazione PDF XFA con Import Form Data API...', 'api');
             
-            // Creiamo il file di dati in formato JSON per XFA
-            const jsonData = JSON.stringify(formData, null, 2);
-            log(`📋 Dati JSON generati: ${Object.keys(formData).length} campi`, 'info');
+            // Convertiamo i dati in formato XML per XFA (più compatibile)
+            let xmlData = '<?xml version="1.0" encoding="UTF-8"?>\n<xfa:datasets xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/">\n<xfa:data>\n<form>\n';
+            
+            state.csvData.forEach((record, index) => {
+                xmlData += `  <record index="${index}">\n`;
+                Object.entries(state.fieldMapping).forEach(([csvField, pdfField]) => {
+                    const value = record[csvField] || '';
+                    // Escape XML characters
+                    const escapedValue = value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                    xmlData += `    <${pdfField.replace(/\s+/g, '_')}>${escapedValue}</${pdfField.replace(/\s+/g, '_')}>\n`;
+                });
+                xmlData += '  </record>\n';
+            });
+            
+            xmlData += '</form>\n</xfa:data>\n</xfa:datasets>';
+            
+            log(`📋 Dati XML generati: ${Object.keys(formData).length} campi`, 'info');
+            console.log('XML Data Preview:', xmlData.substring(0, 500) + '...');
             
             const form = new FormData();
             form.append('id', state.pdfResourceId);
             
-            // Creiamo un blob con i dati JSON
-            const dataBlob = new Blob([jsonData], { type: 'application/json' });
-            form.append('data', dataBlob, 'form_data.json');
+            // ✅ CORREZIONE: Usa 'data_file' (non 'data') e formato XML
+            const dataBlob = new Blob([xmlData], { type: 'application/xml' });
+            form.append('data_file', dataBlob, 'form_data.xml');
             
             // Nome del file di output
             form.append('output', 'documento_compilato');
