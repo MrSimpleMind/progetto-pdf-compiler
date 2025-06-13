@@ -152,6 +152,7 @@
                     🚀 Compila PDF XFA
                 </button>
                 <button id="debugBtn" class="btn btn-blue" disabled>🔍 Analizza Campi PDF</button>
+                <button id="exportBtn" class="btn btn-green" disabled>📤 Esporta Struttura XFA</button>
                 <p class="text-sm text-gray-600 mt-2" id="recordCount">In attesa dei file...</p>
             </div>
             <div id="processProgress" class="hidden mb-4">
@@ -187,6 +188,7 @@
             pdfResourceId: null,
             compiledPdfUrl: null,
             selectedPages: { start: null, end: null },
+            xfaStructure: null,  // ✅ AGGIUNTO: Per memorizzare la struttura XFA estratta
             fieldMapping: {
                 'COGNOME': 'Cognome',
                 'NOME': 'Nome',
@@ -237,6 +239,7 @@
         });
 
         document.getElementById('debugBtn').addEventListener('click', getPdfInfo);
+        document.getElementById('exportBtn').addEventListener('click', exportFormStructure);
 
         document.getElementById('selectCSVBtn').addEventListener('click', () => {
             document.getElementById('csvFileInput').click();
@@ -326,6 +329,7 @@
             compileBtn.disabled = !ready;
             // ✅ CORREZIONE DEL BUG: era !!state.pdfFile (logica invertita)
             debugBtn.disabled = !state.pdfFile;  // Ora si abilita QUANDO c'è un PDF
+            document.getElementById('exportBtn').disabled = !state.pdfFile;  // Esporta struttura
             if (ready) {
                 compileBtn.style.background = '#8b5cf6';
             }
@@ -536,8 +540,8 @@
                 // ✅ SUGGERIMENTI MIGLIORATI in base al tipo di modulo
                 if (isXFA) {
                     log('🎯 STRATEGIA CONSIGLIATA per XFA:', 'success');
-                    log('1️⃣ Prova la compilazione con Import Form Data API', 'info');
-                    log('2️⃣ Se fallisce, gli errori ti diranno il formato dati corretto', 'info');
+                    log('1️⃣ PRIMA: Clicca "Esporta Struttura XFA" per vedere i nomi dei campi corretti', 'info');
+                    log('2️⃣ DOPO: Prova la compilazione con la struttura estratta', 'info');
                     log('3️⃣ Usa la selezione pagine per concentrarti su pagine 4-6', 'info');
                 } else if (isAcroForm) {
                     log('🎯 STRATEGIA CONSIGLIATA per Acroforms:', 'success');
@@ -550,6 +554,77 @@
 
             } catch (error) {
                 log(`❌ Errore durante l'analisi: ${error.message}`, 'error');
+            }
+        }
+        
+        // ✅ NUOVA FUNZIONE: Esporta struttura XFA per capire il formato dati corretto
+        async function exportFormStructure() {
+            if (!state.pdfFile) {
+                log('❌ Prima carica un PDF per estrarre la struttura!', 'error');
+                return;
+            }
+            if (!state.pdfResourceId) {
+                log('📤 Upload del PDF per l\'estrazione in corso...', 'api');
+                try {
+                    await uploadPDF();
+                } catch (e) {
+                    log(`❌ Fallito l'upload per l'estrazione: ${e.message}`, 'error');
+                    return;
+                }
+            }
+
+            log('📤 Estrazione struttura dati XFA...', 'api');
+            const form = new FormData();
+            form.append('id', state.pdfResourceId);
+            
+            // Per XFA usiamo formato XML
+            form.append('data_format', 'xml');
+            form.append('output', 'struttura_xfa');
+
+            try {
+                const response = await fetch(`${API_BASE}/exported-form-data`, {
+                    method: 'POST',
+                    body: form
+                });
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    throw new Error(`Estrazione fallita: ${text}`);
+                }
+
+                const data = await response.json();
+                
+                log('✅ STRUTTURA XFA ESTRATTA!', 'success');
+                log('-------------------------------------------', 'success');
+                log('📋 URL del file di struttura XML:', 'success');
+                log(data.outputUrl, 'info');
+                log('-------------------------------------------', 'success');
+                log('💡 PROSSIMI STEP:', 'success');
+                log('1️⃣ Scarica il file XML dal link sopra', 'info');
+                log('2️⃣ Analizza la struttura per capire i nomi dei campi corretti', 'info');
+                log('3️⃣ Useremo quella struttura per generare dati compatibili', 'info');
+                
+                console.log('Dati completi dalla struttura XFA:', data);
+                
+                // Opzionalmente, proviamo a scaricare e mostrare la struttura
+                if (data.outputUrl) {
+                    try {
+                        const xmlResponse = await fetch(data.outputUrl);
+                        const xmlText = await xmlResponse.text();
+                        log('📋 ANTEPRIMA STRUTTURA XML (primi 1000 caratteri):', 'success');
+                        log(xmlText.substring(0, 1000) + '...', 'info');
+                        console.log('Struttura XML completa:', xmlText);
+                        
+                        // Salviamo la struttura per usarla nella compilazione
+                        state.xfaStructure = xmlText;
+                        
+                    } catch (e) {
+                        log('ℹ️ Non riesco a scaricare automaticamente, usa il link sopra', 'warn');
+                    }
+                }
+
+            } catch (error) {
+                log(`❌ Errore durante l'estrazione: ${error.message}`, 'error');
             }
         }
         
