@@ -297,7 +297,8 @@
             const compileBtn = document.getElementById('compileBtn');
             const debugBtn = document.getElementById('debugBtn');
             compileBtn.disabled = !ready;
-            debugBtn.disabled = !!state.pdfFile;
+            // ✅ CORREZIONE DEL BUG: era !!state.pdfFile (logica invertita)
+            debugBtn.disabled = !state.pdfFile;  // Ora si abilita QUANDO c'è un PDF
             if (ready) {
                 compileBtn.style.background = '#8b5cf6';
             }
