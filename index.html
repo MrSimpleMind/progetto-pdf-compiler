@@ -440,7 +440,7 @@
             form.append('form_data', jsonBlob, 'data.json');
 
             // La chiamata ora usa il nostro /api e rimettiamo la chiave negli headers
-            const response = await fetch(`${API_BASE}/pdf-with-updated-form-field-values`, {
+            const response = await fetch(`${API_BASE}/filled-pdf`, {
                 method: 'POST',
                 body: form
             });
