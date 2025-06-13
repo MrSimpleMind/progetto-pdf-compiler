@@ -405,22 +405,35 @@
         }
 
         async function compilePDF(formData) {
-            log('Compilazione PDF con form data semplice...', 'api');
+            log('🔧 Compilazione PDF XFA con Import Form Data API...', 'api');
+            
+            // Creiamo il file di dati in formato JSON per XFA
+            const jsonData = JSON.stringify(formData, null, 2);
+            log(`📋 Dati JSON generati: ${Object.keys(formData).length} campi`, 'info');
+            
             const form = new FormData();
             form.append('id', state.pdfResourceId);
-            const jsonData = JSON.stringify(formData);
-            form.append('data', jsonData);
-            const response = await fetch(`${API_BASE}/filled-pdf`, {
+            
+            // Creiamo un blob con i dati JSON
+            const dataBlob = new Blob([jsonData], { type: 'application/json' });
+            form.append('data', dataBlob, 'form_data.json');
+            
+            // Nome del file di output
+            form.append('output', 'documento_compilato');
+            
+            const response = await fetch(`${API_BASE}/pdf-with-imported-form-data`, {
                 method: 'POST',
                 body: form
             });
+            
             if (!response.ok) {
                 const text = await response.text();
-                throw new Error(`Compilazione fallita: ${text}`);
+                throw new Error(`Compilazione XFA fallita: ${text}`);
             }
+            
             const data = await response.json();
             state.compiledPdfUrl = data.outputUrl;
-            log('✅ PDF compilato!', 'success');
+            log('✅ PDF XFA compilato con successo!', 'success');
             showResults();
         }
 
@@ -488,10 +501,13 @@
                 log('-------------------------------------------', 'success');
                 console.log('Dati completi ricevuti da /pdf-info:', data);
                 
-                // ✅ FIX: Controlla stringhe invece di booleani
-                if (data.contains_xfa === 'true') {
+                // ✅ FIX: Controllo robusto per stringhe (gestisce anche valori censurati)
+                const isXFA = String(data.contains_xfa).toLowerCase().includes('tr'); // 'true' o 'tr**'
+                const isAcroForm = String(data.contains_acroforms).toLowerCase().includes('tr');
+                
+                if (isXFA) {
                     log('📋 ✅ Il PDF contiene moduli XFA! Perfetto per la compilazione automatica.', 'success');
-                } else if (data.contains_acroforms === 'true') {
+                } else if (isAcroForm) {
                     log('📋 ✅ Il PDF contiene Acroforms! Compatibile per la compilazione.', 'success');
                 } else {
                     log('⚠️ Il PDF non sembra contenere moduli compilabili standard', 'warn');
@@ -503,12 +519,12 @@
                 log('-------------------------------------------', 'success');
                 
                 // ✅ SUGGERIMENTI MIGLIORATI in base al tipo di modulo
-                if (data.contains_xfa === 'true') {
+                if (isXFA) {
                     log('🎯 STRATEGIA CONSIGLIATA per XFA:', 'success');
-                    log('1️⃣ Prova la compilazione con il mapping attuale', 'info');
-                    log('2️⃣ Se fallisce, gli errori ti diranno i nomi corretti dei campi', 'info');
+                    log('1️⃣ Prova la compilazione con Import Form Data API', 'info');
+                    log('2️⃣ Se fallisce, gli errori ti diranno il formato dati corretto', 'info');
                     log('3️⃣ Usa la selezione pagine per concentrarti su pagine 4-6', 'info');
-                } else if (data.contains_acroforms === 'true') {
+                } else if (isAcroForm) {
                     log('🎯 STRATEGIA CONSIGLIATA per Acroforms:', 'success');
                     log('1️⃣ Tenta la compilazione diretta', 'info');
                     log('2️⃣ Verifica il mapping dei nomi campi', 'info');
