@@ -429,18 +429,29 @@
         }
 
         async function compilePDF(formData) {
-            log('🔧 Compilazione PDF XFA con Pro Plan - Tutti i Record...', 'api');
+            log('🔧 Compilazione PDF XFA Pro Plan - Batch Ottimizzati...', 'api');
             
             const totalRecords = state.csvData.length;
-            log(`📊 Processando TUTTI i ${totalRecords} record in una volta (Pro Plan)`, 'success');
-            log('🎯 Modalità SCALABILE: da 1 a 200+ record supportati', 'info');
             
-            // ✅ STRUTTURA XFA CORRETTA per TUTTI i record
+            // ✅ STRATEGIA IBRIDA: Batch più grandi con Pro Plan (aggira Netlify timeout)
+            const batchSize = 20; // Pro Plan può gestire batch più grandi
+            const totalBatches = Math.ceil(totalRecords / batchSize);
+            
+            log(`📊 Strategia Pro: ${totalRecords} record in ${totalBatches} batch da ${batchSize}`, 'success');
+            log('⚠️ Batch necessari per timeout Netlify Functions (10s), non pdfRest', 'warn');
+            
+            // Processa il primo batch ottimizzato
+            const firstBatch = state.csvData.slice(0, batchSize);
+            const recordsInBatch = firstBatch.length;
+            
+            log(`🚀 Batch 1/${totalBatches}: ${recordsInBatch} record`, 'api');
+            
+            // ✅ STRUTTURA XFA CORRETTA per batch Pro
             let xmlData = '<?xml version="1.0" encoding="UTF-8"?>\n';
             xmlData += '<welfare xmlns="http://schemas.sygest.it/adobe">\n';
             
-            // Aggiungiamo OGNI record CSV come elemento <personale_standard>
-            state.csvData.forEach((record, index) => {
+            // Aggiungiamo ogni record del batch come elemento <personale_standard>
+            firstBatch.forEach((record, index) => {
                 xmlData += '  <personale_standard>\n';
                 
                 Object.entries(state.fieldMapping).forEach(([csvField, xfaField]) => {
@@ -462,20 +473,20 @@
             
             xmlData += '</welfare>';
             
-            log(`📋 XML XFA generato: ${totalRecords} elementi <personale_standard>`, 'success');
-            log(`📊 Campi totali: ${totalRecords * Object.keys(state.fieldMapping).length}`, 'info');
+            log(`📋 XML XFA generato: ${recordsInBatch} elementi (batch 1)`, 'success');
+            log(`📊 Campi in questo batch: ${recordsInBatch * Object.keys(state.fieldMapping).length}`, 'info');
             console.log('XML XFA Preview:', xmlData.substring(0, 1000) + '...');
             
             const form = new FormData();
             form.append('id', state.pdfResourceId);
             
-            // Nome file dinamico basato su numero record
+            // Nome file dinamico
             const dataBlob = new Blob([xmlData], { type: 'application/xml' });
-            form.append('data_file', dataBlob, `welfare_${totalRecords}records.xml`);
+            form.append('data_file', dataBlob, `welfare_batch1_${recordsInBatch}records.xml`);
             
-            // Nome del file di output con timestamp
+            // Nome del file di output con info batch
             const timestamp = new Date().toISOString().slice(0,19).replace(/:/g,'-');
-            form.append('output', `documento_${totalRecords}record_${timestamp}`);
+            form.append('output', `documento_batch1of${totalBatches}_${recordsInBatch}rec_${timestamp}`);
             
             const response = await fetch(`${API_BASE}/pdf-with-imported-form-data`, {
                 method: 'POST',
@@ -490,9 +501,15 @@
             const data = await response.json();
             state.compiledPdfUrl = data.outputUrl;
             
-            log('✅ PDF XFA compilato con TUTTI i record!', 'success');
-            log(`📊 Record processati: ${totalRecords}/${totalRecords} (100%)`, 'success');
-            log('🎯 Il PDF si espanderà automaticamente su tutte le pagine necessarie', 'info');
+            log('✅ BATCH 1 completato con Pro Plan!', 'success');
+            log(`📊 Record processati: ${recordsInBatch}/${totalRecords} (${Math.round(recordsInBatch/totalRecords*100)}%)`, 'success');
+            
+            if (totalBatches > 1) {
+                log('🔄 PROSSIMI BATCH:', 'info');
+                log(`📋 Rimanenti: ${totalRecords - recordsInBatch} record in ${totalBatches - 1} batch`, 'info');
+                log('💡 Scarica questo batch, poi potremo processare i rimanenti', 'info');
+                log('🚀 Pro Plan consente batch più grandi (20 vs 10)', 'success');
+            }
             
             showResults();
         }
