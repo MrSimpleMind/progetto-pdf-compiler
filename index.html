@@ -434,11 +434,14 @@
             xmlData += '</welfare>';
             
             log(`📋 XML XFA generato: ${state.csvData.length} elementi <personale_standard>`, 'success');
-            log('🎯 Struttura basata sulla sezione del personale (pagine 4-6)', 'info');
+            log('🎯 Modalità ASINCRONA per evitare timeout', 'info');
             console.log('XML XFA Preview:', xmlData.substring(0, 800) + '...');
             
             const form = new FormData();
             form.append('id', state.pdfResourceId);
+            
+            // ✅ SOLUZIONE TIMEOUT: Processing asincrono
+            form.append('async', 'true');
             
             // Usa 'data_file' con formato XML corretto
             const dataBlob = new Blob([xmlData], { type: 'application/xml' });
@@ -458,9 +461,72 @@
             }
             
             const data = await response.json();
-            state.compiledPdfUrl = data.outputUrl;
-            log('✅ PDF XFA compilato con struttura corretta!', 'success');
-            showResults();
+            
+            // ✅ GESTIONE ASYNC: Controlla se è processing asincrono
+            if (data.requestId) {
+                log('🔄 Processing asincrono avviato...', 'api');
+                log(`📋 Request ID: ${data.requestId}`, 'info');
+                log('⏳ Polling per lo stato del processing...', 'info');
+                
+                // Polling per il risultato
+                await pollForResult(data.requestId);
+            } else {
+                // Processing sincrono completato
+                state.compiledPdfUrl = data.outputUrl;
+                log('✅ PDF XFA compilato con struttura corretta!', 'success');
+                showResults();
+            }
+        }
+        
+        // ✅ NUOVA FUNZIONE: Polling per processing asincrono
+        async function pollForResult(requestId) {
+            const maxAttempts = 30; // 5 minuti di polling
+            let attempts = 0;
+            
+            const poll = async () => {
+                attempts++;
+                log(`🔄 Controllo stato (tentativo ${attempts}/${maxAttempts})...`, 'api');
+                
+                try {
+                    const response = await fetch(`${API_BASE}/status/${requestId}`, {
+                        method: 'GET'
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Status check fallito: ${await response.text()}`);
+                    }
+                    
+                    const status = await response.json();
+                    
+                    if (status.status === 'complete') {
+                        state.compiledPdfUrl = status.outputUrl;
+                        log('✅ PDF XFA compilato con successo (modalità asincrona)!', 'success');
+                        showResults();
+                        return;
+                    } else if (status.status === 'failed') {
+                        throw new Error(`Processing fallito: ${status.error || 'Errore sconosciuto'}`);
+                    } else {
+                        // Ancora in processing
+                        log(`⏳ Stato: ${status.status || 'processing'}...`, 'info');
+                        
+                        if (attempts < maxAttempts) {
+                            // Aspetta 10 secondi prima del prossimo check
+                            setTimeout(poll, 10000);
+                        } else {
+                            throw new Error('Timeout del polling - operazione troppo lunga');
+                        }
+                    }
+                } catch (error) {
+                    log(`❌ Errore nel polling: ${error.message}`, 'error');
+                    const btn = document.getElementById('compileBtn');
+                    btn.disabled = false;
+                    btn.textContent = '🚀 Compila PDF XFA';
+                    document.getElementById('processProgress').classList.add('hidden');
+                }
+            };
+            
+            // Avvia il polling dopo 5 secondi
+            setTimeout(poll, 5000);
         }
 
         function showResults() {
