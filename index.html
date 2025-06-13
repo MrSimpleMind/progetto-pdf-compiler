@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compilatore PDF XFA - ATS Monza Brianza (con Proxy)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        .log-area {
+            background: #000;
+            color: #00ff00;
+            font-family: monospace;
+            padding: 15px;
+            border-radius: 8px;
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+        .btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+        .btn:disabled {
+            background: #ccc !important;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        .btn-blue { background: #3b82f6; color: white; }
+        .btn-green { background: #10b981; color: white; }
+        .btn-purple { background: #8b5cf6; color: white; }
+        .btn-red { background: #ef4444; color: white; }
+        .status-ok { color: #10b981; }
+        .status-error { color: #ef4444; }
+        .progress-bar {
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div class="container mx-auto p-6 max-w-6xl">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-blue-600 to-green-600 text-white p-6 rounded-lg mb-6 text-center">
+            <h1 class="text-3xl font-bold mb-2">📋 Compilatore PDF XFA - ATS Monza Brianza</h1>
+            <p class="opacity-90">Compila automaticamente la tabella del personale nel PDF XFA</p>
+            <div class="mt-3 bg-yellow-500 text-yellow-900 p-2 rounded">
+                <strong>⚠️ Versione con Proxy CORS</strong> - Soluzione temporanea per test locale
+            </div>
+        </div>
+
+        <!-- CORS Warning -->
+        <div class="bg-yellow-50 border border-yellow-200 p-4 rounded-lg mb-6">
+            <h3 class="font-bold text-yellow-800 mb-2">⚠️ Nota importante sul Proxy CORS</h3>
+            <p class="text-sm text-yellow-700">
+                Questa versione usa un proxy pubblico per aggirare le restrizioni CORS. 
+                <strong>Non usare in produzione!</strong> Per un uso sicuro:
+            </p>
+            <ul class="list-disc list-inside text-sm mt-2 text-yellow-700">
+                <li>Usa un server web locale (vedi istruzioni sotto)</li>
+                <li>O crea un backend che gestisca le chiamate API</li>
+            </ul>
+        </div>
+
+        <!-- Instructions -->
+        <div class="bg-blue-50 border border-blue-200 p-6 rounded-lg mb-6">
+            <h2 class="text-lg font-bold text-blue-700 mb-3">ℹ️ Come funziona</h2>
+            <ol class="list-decimal list-inside space-y-2 text-sm">
+                <li>Inserisci la tua API Key di pdfRest</li>
+                <li>Carica il file CSV con i dati del personale</li>
+                <li>Carica il PDF XFA dell'ATS Monza Brianza</li>
+                <li>Il sistema compilerà la tabella del personale</li>
+            </ol>
+        </div>
+
+        <!-- API Configuration -->
+        <div class="bg-white p-6 rounded-lg shadow mb-6">
+            <h2 class="text-xl font-bold mb-4 text-blue-700">🔑 Configurazione API pdfRest</h2>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-sm font-bold mb-2">API Key:</label>
+                    <div class="flex space-x-2">
+                        <input 
+                            type="password" 
+                            id="apiKeyInput" 
+                            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                            class="flex-1 p-3 border rounded font-mono text-sm"
+                            value="bc95f9dc-d3e0-4b30-8da0-53f6deb83712"
+                        >
+                        <button id="toggleKeyBtn" class="btn btn-blue px-3">👁️</button>
+                    </div>
+                    <div id="apiStatus" class="mt-2 text-sm"></div>
+                </div>
+                
+                <div class="flex flex-col justify-end">
+                    <button id="saveApiBtn" class="btn btn-green mb-2">💾 Salva API Key</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- File Upload -->
+        <div class="bg-white p-6 rounded-lg shadow mb-6">
+            <h2 class="text-xl font-bold mb-4 text-purple-700">📁 Caricamento File</h2>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- CSV Upload -->
+                <div class="border-2 border-dashed border-green-400 rounded-lg p-6">
+                    <div class="text-center mb-4">
+                        <div class="text-4xl mb-2">📊</div>
+                        <h3 class="font-bold mb-2">File CSV Personale</h3>
+                        <input type="file" id="csvFileInput" accept=".csv" class="hidden">
+                        <button id="selectCSVBtn" class="btn btn-green">📂 Seleziona CSV</button>
+                    </div>
+                    <div id="csvStatus" class="text-sm mb-3"></div>
+                    <div id="csvPreview" class="hidden bg-gray-50 p-3 rounded text-xs max-h-40 overflow-y-auto"></div>
+                </div>
+
+                <!-- PDF Upload -->
+                <div class="border-2 border-dashed border-purple-400 rounded-lg p-6">
+                    <div class="text-center mb-4">
+                        <div class="text-4xl mb-2">📄</div>
+                        <h3 class="font-bold mb-2">PDF XFA ATS</h3>
+                        <input type="file" id="pdfFileInput" accept=".pdf" class="hidden">
+                        <button id="selectPDFBtn" class="btn btn-purple">📂 Seleziona PDF</button>
+                    </div>
+                    <div id="pdfStatus" class="text-sm mb-3"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Process Control -->
+        <div class="bg-white p-6 rounded-lg shadow mb-6">
+            <h2 class="text-xl font-bold mb-4 text-green-700">🚀 Compilazione PDF</h2>
+            
+            <div class="text-center mb-4">
+                <button id="compileBtn" class="btn btn-purple text-lg px-8 py-4" disabled>
+                    🚀 Compila PDF XFA
+                </button>
+                <p class="text-sm text-gray-600 mt-2" id="recordCount">In attesa dei file...</p>
+            </div>
+
+            <div id="processProgress" class="hidden mb-4">
+                <div class="progress-bar mb-2">
+                    <div id="progressFill" class="progress-fill" style="width: 0%"></div>
+                </div>
+                <div id="progressText" class="text-center text-sm"></div>
+            </div>
+        </div>
+
+        <!-- Results -->
+        <div id="resultsSection" class="bg-white p-6 rounded-lg shadow mb-6 hidden">
+            <h2 class="text-xl font-bold mb-4 text-green-700">✅ PDF Compilato</h2>
+            <div id="resultsContent"></div>
+        </div>
+
+        <!-- Log -->
+        <div class="bg-white p-6 rounded-lg shadow">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-gray-700">📋 Log Operazioni</h2>
+                <button id="clearLogBtn" class="btn btn-red text-sm">🗑️ Pulisci</button>
+            </div>
+            <div id="logArea" class="log-area"></div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        const state = {
+            apiKey: 'bc95f9dc-d3e0-4b30-8da0-53f6deb83712',
+            csvData: null,
+            pdfFile: null,
+            pdfResourceId: null,
+            compiledPdfUrl: null,
+            useProxy: true,
+            fieldMapping: {
+                'COGNOME': 'Cognome',
+                'NOME': 'Nome',
+                'C.F.': 'C.F.',
+                'Qualifica (Q)': 'Qualifica (Q)',
+                'Tipo rapporto': 'Tipo rapporto',
+                'Tipo contratto (TC)': 'Tipo contratto (TC)',
+                'N. ore sett. Da contratto': 'N. ore sett. Da contratto',
+                'N. sett. Anno': 'N. sett. Anno',
+                'N. ore tot.': 'N. ore tot',
+                'di cui straordinari': 'Di cui straordinari'
+            }
+        };
+
+        // API configuration
+        // API_BASE ora punta al nostro proxy interno su Netlify.
+        const API_BASE = '/api';
+
+        // Utility functions
+        function log(message, type = 'info') {
+            const now = new Date().toLocaleTimeString();
+            const colors = {
+                'info': '#00ff00',
+                'warn': '#ffff00', 
+                'error': '#ff0000',
+                'success': '#00ffff',
+                'api': '#ff69b4'
+            };
+            
+            const logArea = document.getElementById('logArea');
+            const color = colors[type] || '#00ff00';
+            logArea.innerHTML += `<div style="color: ${color};">[${now}] ${message}</div>`;
+            logArea.scrollTop = logArea.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        // Initialize event listeners
+        document.getElementById('toggleKeyBtn').addEventListener('click', () => {
+            const input = document.getElementById('apiKeyInput');
+            input.type = input.type === 'password' ? 'text' : 'password';
+        });
+
+        document.getElementById('saveApiBtn').addEventListener('click', () => {
+            const apiKey = document.getElementById('apiKeyInput').value.trim();
+            if (!apiKey) {
+                log('Inserisci l\'API key', 'error');
+                return;
+            }
+            
+            state.apiKey = apiKey;
+                        log('✅ API key salvata!', 'success');
+            document.getElementById('apiStatus').innerHTML = '<span class="status-ok">✅ Configurato</span>';
+            checkReadyState();
+        });
+
+        // CSV handling
+        document.getElementById('selectCSVBtn').addEventListener('click', () => {
+            document.getElementById('csvFileInput').click();
+        });
+
+        document.getElementById('csvFileInput').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            log('Caricamento CSV...', 'info');
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    Papa.parse(e.target.result, {
+                        header: true,
+                        delimiter: ";",
+                        skipEmptyLines: true,
+                        complete: (results) => {
+                            state.csvData = results.data.filter(row => row['COGNOME'] && row['COGNOME'].trim());
+                            
+                            log(`✅ CSV caricato: ${state.csvData.length} record trovati`, 'success');
+                            document.getElementById('csvStatus').innerHTML = 
+                                `<span class="status-ok">✅ ${state.csvData.length} record</span>`;
+                            
+                            showCSVPreview();
+                            updateRecordCount();
+                            checkReadyState();
+                        },
+                        error: (error) => {
+                            log(`❌ Errore parsing CSV: ${error.message}`, 'error');
+                        }
+                    });
+                } catch (error) {
+                    log(`❌ Errore lettura CSV: ${error.message}`, 'error');
+                }
+            };
+            reader.readAsText(file, 'UTF-8');
+        });
+
+        function showCSVPreview() {
+            const preview = document.getElementById('csvPreview');
+            let html = '<table class="w-full text-xs">';
+            html += '<thead><tr class="border-b">';
+            
+            Object.keys(state.fieldMapping).forEach(header => {
+                html += `<th class="text-left p-1 text-[10px]">${header}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+            
+            state.csvData.slice(0, 3).forEach((row) => {
+                html += '<tr class="border-b">';
+                Object.keys(state.fieldMapping).forEach(header => {
+                    const value = row[header] || '';
+                    html += `<td class="p-1 text-[10px]">${value.substring(0, 15)}${value.length > 15 ? '...' : ''}</td>`;
+                });
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            
+            if (state.csvData.length > 3) {
+                html += `<p class="text-center mt-2 text-gray-500">... e altri ${state.csvData.length - 3} record</p>`;
+            }
+            
+            preview.innerHTML = html;
+            preview.classList.remove('hidden');
+        }
+
+        // PDF handling
+        document.getElementById('selectPDFBtn').addEventListener('click', () => {
+            document.getElementById('pdfFileInput').click();
+        });
+
+        document.getElementById('pdfFileInput').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (file.type !== 'application/pdf') {
+                log('❌ Il file deve essere un PDF', 'error');
+                return;
+            }
+
+            state.pdfFile = file;
+            const sizeMB = (file.size / 1024 / 1024).toFixed(2);
+            log(`📄 PDF selezionato: ${file.name} (${sizeMB} MB)`, 'success');
+            document.getElementById('pdfStatus').innerHTML = 
+                `<span class="status-ok">✅ ${file.name}</span>`;
+            
+            checkReadyState();
+        });
+
+        function updateRecordCount() {
+            const el = document.getElementById('recordCount');
+            if (state.csvData) {
+                el.textContent = `Pronti ${state.csvData.length} record da compilare`;
+            }
+        }
+
+        function checkReadyState() {
+            const ready = state.apiKey && state.csvData && state.pdfFile;
+            const btn = document.getElementById('compileBtn');
+            btn.disabled = !ready;
+            if (ready) {
+                btn.style.background = '#8b5cf6';
+            }
+        }
+
+        // Compilation process
+        document.getElementById('compileBtn').addEventListener('click', async () => {
+            if (!state.apiKey || !state.csvData || !state.pdfFile) {
+                log('❌ Mancano dei prerequisiti', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('compileBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Compilazione in corso...';
+            
+            const progressDiv = document.getElementById('processProgress');
+            progressDiv.classList.remove('hidden');
+
+            try {
+                updateProgress(20, 'Upload PDF...');
+                await uploadPDF();
+
+                updateProgress(50, 'Preparazione dati...');
+                const formData = await createFormData();
+
+                updateProgress(70, 'Compilazione PDF...');
+                await compilePDF(formData);
+
+                updateProgress(100, 'Completato!');
+                btn.textContent = '✅ Compilazione completata';
+                btn.style.background = '#10b981';
+
+            } catch (error) {
+                log(`❌ Errore: ${error.message}`, 'error');
+                btn.disabled = false;
+                btn.textContent = '🚀 Compila PDF XFA';
+                progressDiv.classList.add('hidden');
+            }
+        });
+
+        async function uploadPDF() {
+            log('Upload PDF...', 'api');
+            
+            const formData = new FormData();
+            formData.append('file', state.pdfFile);
+
+            // La chiamata ora usa il nostro /api e rimettiamo la chiave negli headers
+            const response = await fetch(`${API_BASE}/upload`, {
+                method: 'POST',
+                headers: {
+                    'Api-Key': state.apiKey
+                },
+                body: formData
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Upload fallito: ${text}`);
+            }
+
+            const data = await response.json();
+            state.pdfResourceId = data.files[0].id;
+            log(`✅ PDF uploadato. ID: ${state.pdfResourceId}`, 'success');
+        }
+
+        async function createFormData() {
+            log('Preparazione dati per compilazione...', 'info');
+            
+            // Create simple form data mapping
+            const formData = {};
+            
+            // Map CSV data to form fields
+            state.csvData.forEach((record, index) => {
+                Object.entries(state.fieldMapping).forEach(([csvField, pdfField]) => {
+                    const value = record[csvField] || '';
+                    
+                    // Try different field naming patterns
+                    formData[`${pdfField}[${index}]`] = value;
+                    formData[`Row${index + 1}.${pdfField}`] = value;
+                    formData[`Table1.Row${index + 1}.${pdfField}`] = value;
+                });
+            });
+
+            log(`✅ Preparati dati per ${state.csvData.length} record`, 'success');
+            return formData;
+        }
+
+        async function compilePDF(formData) {
+            log('Compilazione PDF con form data semplice...', 'api');
+            
+            const form = new FormData();
+            form.append('id', state.pdfResourceId);
+            
+            const jsonData = JSON.stringify(formData, null, 2);
+            const jsonBlob = new Blob([jsonData], { type: 'application/json' });
+            form.append('form_data', jsonBlob, 'data.json');
+
+            // La chiamata ora usa il nostro /api e rimettiamo la chiave negli headers
+            const response = await fetch(`${API_BASE}/pdf-with-updated-form-field-values`, {
+                method: 'POST',
+                headers: {
+                    'Api-Key': state.apiKey
+                },
+                body: form
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Compilazione fallita: ${text}`);
+            }
+
+            const data = await response.json();
+            state.compiledPdfUrl = data.outputUrl;
+            
+            log('✅ PDF compilato!', 'success');
+            showResults();
+        }
+
+        function showResults() {
+            const section = document.getElementById('resultsSection');
+            const content = document.getElementById('resultsContent');
+            
+            let html = '<div class="text-center space-y-4">';
+            html += '<p class="text-lg">Il PDF è stato processato!</p>';
+            html += '<p class="text-sm text-gray-600">Processati ' + state.csvData.length + ' record</p>';
+            
+            if (state.compiledPdfUrl) {
+                const downloadUrl = state.useProxy ? 
+                    `${PROXY_URL}${encodeURIComponent(state.compiledPdfUrl)}` : 
+                    state.compiledPdfUrl;
+                    
+                html += `<a href="${downloadUrl}" target="_blank" class="btn btn-green inline-block">`;
+                html += '📥 Scarica PDF Compilato</a>';
+                
+                html += '<p class="text-xs text-gray-500 mt-2">Se il download non funziona, copia questo URL:<br>';
+                html += `<code class="bg-gray-100 p-1 rounded">${state.compiledPdfUrl}</code></p>`;
+            }
+            
+            html += '</div>';
+            
+            content.innerHTML = html;
+            section.classList.remove('hidden');
+        }
+
+        function updateProgress(percent, text) {
+            document.getElementById('progressFill').style.width = percent + '%';
+            document.getElementById('progressText').textContent = text;
+        }
+
+        // Clear log
+        document.getElementById('clearLogBtn').addEventListener('click', () => {
+            document.getElementById('logArea').innerHTML = '';
+            log('Log pulito', 'info');
+        });
+
+        // Initialize
+        log('Sistema inizializzato', 'success');
+        log('Versione con Proxy CORS attiva', 'warn');
+        log('Per uso in produzione, usa un server web', 'info');
+    </script>
+
+</body>
+</html>
