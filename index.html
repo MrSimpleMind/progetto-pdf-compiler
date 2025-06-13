@@ -125,6 +125,28 @@
         <!-- Process Control -->
         <div class="bg-white p-6 rounded-lg shadow mb-6">
             <h2 class="text-xl font-bold mb-4 text-green-700">🚀 Azioni</h2>
+            
+            <!-- Page Selection -->
+            <div class="mb-6 p-4 bg-blue-50 rounded-lg">
+                <h3 class="font-bold text-blue-700 mb-3">📄 Selezione Pagine (Opzionale)</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-bold mb-1">Pagina Inizio:</label>
+                        <input type="number" id="startPageInput" min="1" max="100" value="4" 
+                               class="w-full p-2 border rounded text-center">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold mb-1">Pagina Fine:</label>
+                        <input type="number" id="endPageInput" min="1" max="100" value="6" 
+                               class="w-full p-2 border rounded text-center">
+                    </div>
+                    <div class="flex items-end">
+                        <button id="resetPagesBtn" class="btn btn-blue w-full text-sm">🔄 Reset a Tutto</button>
+                    </div>
+                </div>
+                <p class="text-xs text-gray-600 mt-2">💡 Lascia vuoto per processare tutto il PDF, oppure specifica l'intervallo di pagine con i moduli da compilare</p>
+            </div>
+            
             <div class="text-center mb-4 space-x-4">
                 <button id="compileBtn" class="btn btn-purple text-lg px-8 py-4" disabled>
                     🚀 Compila PDF XFA
@@ -164,6 +186,7 @@
             pdfFile: null,
             pdfResourceId: null,
             compiledPdfUrl: null,
+            selectedPages: { start: null, end: null },
             fieldMapping: {
                 'COGNOME': 'Cognome',
                 'NOME': 'Nome',
@@ -171,10 +194,10 @@
                 'Qualifica (Q)': 'Qualifica (Q)',
                 'Tipo rapporto': 'Tipo rapporto',
                 'Tipo contratto (TC)': 'Tipo contratto (TC)',
-                'N. ore sett. Da contratto': 'N. ore sett. Da contratto',
+                'N. ore sett. Da contratto': 'N. ore sett. da contratto',
                 'N. sett. Anno': 'N. sett. Anno',
-                'N. ore tot.': 'N. ore tot',
-                'di cui straordinari': 'Di cui straordinari'
+                'N. ore tot.': 'N. ore tot.',
+                'di cui straordinari': 'di cui straordinari'
             }
         };
 
@@ -288,7 +311,11 @@
 
         function updateRecordCount() {
             if (state.csvData) {
-                document.getElementById('recordCount').textContent = `Pronti ${state.csvData.length} record da compilare`;
+                let message = `Pronti ${state.csvData.length} record da compilare`;
+                if (state.selectedPages.start && state.selectedPages.end) {
+                    message += ` (pagine ${state.selectedPages.start}-${state.selectedPages.end})`;
+                }
+                document.getElementById('recordCount').textContent = message;
             }
         }
 
@@ -351,15 +378,29 @@
         }
 
         function createFormData() {
-            log('Preparazione dati per compilazione...', 'info');
+            log('🔧 Preparazione dati per compilazione XFA...', 'info');
+            
+            // Log strategia pagine
+            if (state.selectedPages.start && state.selectedPages.end) {
+                log(`🎯 Focus su pagine ${state.selectedPages.start}-${state.selectedPages.end}`, 'info');
+            } else {
+                log('🎯 Compilazione di tutto il PDF', 'info');
+            }
+            
             const formData = {};
+            
+            // Strategia: Mappare i campi CSV sui nomi attesi nel PDF XFA
             state.csvData.forEach((record, index) => {
                 Object.entries(state.fieldMapping).forEach(([csvField, pdfField]) => {
                     const value = record[csvField] || '';
+                    // Formato: NomeCampo[indiceRiga] per tabelle XFA
                     formData[`${pdfField}[${index}]`] = value;
                 });
             });
-            log(`✅ Preparati dati per ${state.csvData.length} record`, 'success');
+            
+            log(`✅ Mappati ${state.csvData.length} record con ${Object.keys(state.fieldMapping).length} campi ciascuno`, 'success');
+            log(`📊 Totale campi da compilare: ${Object.keys(formData).length}`, 'info');
+            
             return formData;
         }
 
@@ -447,25 +488,33 @@
                 log('-------------------------------------------', 'success');
                 console.log('Dati completi ricevuti da /pdf-info:', data);
                 
-                // Mostra informazioni sui moduli
-                if (data.contains_xfa === true) {
-                    log('📋 Il PDF contiene moduli XFA!', 'success');
-                } else if (data.contains_acroforms === true) {
-                    log('📋 Il PDF contiene Acroforms!', 'success');
+                // ✅ FIX: Controlla stringhe invece di booleani
+                if (data.contains_xfa === 'true') {
+                    log('📋 ✅ Il PDF contiene moduli XFA! Perfetto per la compilazione automatica.', 'success');
+                } else if (data.contains_acroforms === 'true') {
+                    log('📋 ✅ Il PDF contiene Acroforms! Compatibile per la compilazione.', 'success');
                 } else {
-                    log('⚠️ Il PDF non sembra contenere moduli compilabili', 'warn');
+                    log('⚠️ Il PDF non sembra contenere moduli compilabili standard', 'warn');
+                    log('💡 Potrebbe essere un PDF statico o con moduli non standard', 'info');
                 }
                 
                 log(`📄 Numero di pagine: ${data.page_count}`, 'info');
                 log(`📁 Nome file: ${data.filename}`, 'info');
                 log('-------------------------------------------', 'success');
                 
-                // Suggerimento per ottenere i nomi dei campi
-                if (data.contains_xfa === true || data.contains_acroforms === true) {
-                    log('💡 SUGGERIMENTO: Per ottenere i nomi dei campi, prova a compilare il PDF con il mapping attuale', 'info');
-                    log('💡 Gli errori di compilazione ti indicheranno i nomi corretti dei campi!', 'info');
+                // ✅ SUGGERIMENTI MIGLIORATI in base al tipo di modulo
+                if (data.contains_xfa === 'true') {
+                    log('🎯 STRATEGIA CONSIGLIATA per XFA:', 'success');
+                    log('1️⃣ Prova la compilazione con il mapping attuale', 'info');
+                    log('2️⃣ Se fallisce, gli errori ti diranno i nomi corretti dei campi', 'info');
+                    log('3️⃣ Usa la selezione pagine per concentrarti su pagine 4-6', 'info');
+                } else if (data.contains_acroforms === 'true') {
+                    log('🎯 STRATEGIA CONSIGLIATA per Acroforms:', 'success');
+                    log('1️⃣ Tenta la compilazione diretta', 'info');
+                    log('2️⃣ Verifica il mapping dei nomi campi', 'info');
                 } else {
-                    log('❌ Questo PDF potrebbe non essere compilabile automaticamente', 'error');
+                    log('❓ DIAGNOSI: Il PDF potrebbe non essere standard', 'warn');
+                    log('💡 Prova comunque la compilazione - alcuni XFA complessi possono non essere rilevati correttamente', 'info');
                 }
 
             } catch (error) {
@@ -473,7 +522,35 @@
             }
         }
         
+        // ✅ NUOVI LISTENER: Gestione selezione pagine
+        document.getElementById('startPageInput').addEventListener('change', updatePageSelection);
+        document.getElementById('endPageInput').addEventListener('change', updatePageSelection);
+        document.getElementById('resetPagesBtn').addEventListener('click', () => {
+            document.getElementById('startPageInput').value = '';
+            document.getElementById('endPageInput').value = '';
+            updatePageSelection();
+        });
+        
+        function updatePageSelection() {
+            const startPage = document.getElementById('startPageInput').value;
+            const endPage = document.getElementById('endPageInput').value;
+            
+            state.selectedPages.start = startPage ? parseInt(startPage) : null;
+            state.selectedPages.end = endPage ? parseInt(endPage) : null;
+            
+            if (state.selectedPages.start && state.selectedPages.end) {
+                log(`📄 Selezione pagine: ${state.selectedPages.start}-${state.selectedPages.end}`, 'info');
+            } else if (state.selectedPages.start) {
+                log(`📄 Dalla pagina: ${state.selectedPages.start}`, 'info');
+            } else if (state.selectedPages.end) {
+                log(`📄 Fino alla pagina: ${state.selectedPages.end}`, 'info');
+            } else {
+                log('📄 Modalità: Tutto il PDF', 'info');
+            }
+        }
+        
         // Initialize
+        updatePageSelection(); // Imposta i valori di default (4-6)
         log('Sistema inizializzato', 'success');
     </script>
 
