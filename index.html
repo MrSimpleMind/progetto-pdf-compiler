@@ -427,8 +427,8 @@
             const form = new FormData();
             form.append('id', state.pdfResourceId);
             
-            // === CORREZIONE 2: Aggiungiamo il campo 'queries' ===
-            form.append('queries', 'formFields');
+            // === CORREZIONE: Usiamo query valide per verificare i tipi di modulo ===
+            form.append('queries', 'contains_xfa,contains_acroforms,page_count,filename');
 
             try {
                 const response = await fetch(`${API_BASE}/pdf-info`, {
@@ -443,20 +443,30 @@
 
                 const data = await response.json();
                 
-                log('✅ INFORMAZIONI RICEVUTE! Controlla la console del browser per i dettagli completi.', 'success');
+                log('✅ INFORMAZIONI PDF RICEVUTE!', 'success');
                 log('-------------------------------------------', 'success');
-                log('NOMI DEI CAMPI TROVATI (primi 20):', 'success');
-                
                 console.log('Dati completi ricevuti da /pdf-info:', data);
-
-                if (data.formFields && data.formFields.length > 0) {
-                   data.formFields.slice(0, 20).forEach(field => {
-                       log(`- Nome Campo: ${field.name}`, 'info');
-                   });
+                
+                // Mostra informazioni sui moduli
+                if (data.contains_xfa === true) {
+                    log('📋 Il PDF contiene moduli XFA!', 'success');
+                } else if (data.contains_acroforms === true) {
+                    log('📋 Il PDF contiene Acroforms!', 'success');
                 } else {
-                    log('Nessun campo modulo trovato in questo PDF.', 'warn');
+                    log('⚠️ Il PDF non sembra contenere moduli compilabili', 'warn');
                 }
+                
+                log(`📄 Numero di pagine: ${data.page_count}`, 'info');
+                log(`📁 Nome file: ${data.filename}`, 'info');
                 log('-------------------------------------------', 'success');
+                
+                // Suggerimento per ottenere i nomi dei campi
+                if (data.contains_xfa === true || data.contains_acroforms === true) {
+                    log('💡 SUGGERIMENTO: Per ottenere i nomi dei campi, prova a compilare il PDF con il mapping attuale', 'info');
+                    log('💡 Gli errori di compilazione ti indicheranno i nomi corretti dei campi!', 'info');
+                } else {
+                    log('❌ Questo PDF potrebbe non essere compilabile automaticamente', 'error');
+                }
 
             } catch (error) {
                 log(`❌ Errore durante l'analisi: ${error.message}`, 'error');
