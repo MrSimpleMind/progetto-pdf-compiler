@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Compilatore PDF XFA - ATS Monza Brianza (con Proxy)</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/3.4.1/tailwind.min.js"></script>
+    <!-- === CORREZIONE 1: Link corretto a TailwindCSS === -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         .log-area {
@@ -163,7 +164,6 @@
             pdfFile: null,
             pdfResourceId: null,
             compiledPdfUrl: null,
-            // Questo è il MAPPING ATTUALE. Lo modificheremo in base ai risultati del debug.
             fieldMapping: {
                 'COGNOME': 'Cognome',
                 'NOME': 'Nome',
@@ -178,10 +178,8 @@
             }
         };
 
-        // API configuration
         const API_BASE = '/api';
 
-        // Utility functions
         function log(message, type = 'info') {
             const now = new Date().toLocaleTimeString();
             const colors = {
@@ -198,7 +196,6 @@
             console.log(`[${type.toUpperCase()}] ${message}`);
         }
 
-        // Initialize event listeners
         document.getElementById('toggleKeyBtn').addEventListener('click', () => {
             const input = document.getElementById('apiKeyInput');
             input.type = input.type === 'password' ? 'text' : 'password';
@@ -218,7 +215,6 @@
 
         document.getElementById('debugBtn').addEventListener('click', getPdfInfo);
 
-        // CSV handling
         document.getElementById('selectCSVBtn').addEventListener('click', () => {
             document.getElementById('csvFileInput').click();
         });
@@ -271,7 +267,6 @@
             preview.classList.remove('hidden');
         }
 
-        // PDF handling
         document.getElementById('selectPDFBtn').addEventListener('click', () => {
             document.getElementById('pdfFileInput').click();
         });
@@ -284,7 +279,7 @@
                 return;
             }
             state.pdfFile = file;
-            state.pdfResourceId = null; // Resetta l'ID se il file cambia
+            state.pdfResourceId = null;
             const sizeMB = (file.size / 1024 / 1024).toFixed(2);
             log(`📄 PDF selezionato: ${file.name} (${sizeMB} MB)`, 'success');
             document.getElementById('pdfStatus').innerHTML = `<span class="status-ok">✅ ${file.name}</span>`;
@@ -302,41 +297,33 @@
             const compileBtn = document.getElementById('compileBtn');
             const debugBtn = document.getElementById('debugBtn');
             compileBtn.disabled = !ready;
-            debugBtn.disabled = !state.pdfFile;
+            debugBtn.disabled = !!state.pdfFile;
             if (ready) {
                 compileBtn.style.background = '#8b5cf6';
             }
         }
 
-        // Compilation process
         document.getElementById('compileBtn').addEventListener('click', async () => {
             if (!state.apiKey || !state.csvData || !state.pdfFile) {
                 log('❌ Mancano dei prerequisiti', 'error');
                 return;
             }
-
             const btn = document.getElementById('compileBtn');
             btn.disabled = true;
             btn.textContent = '⏳ Compilazione in corso...';
             document.getElementById('processProgress').classList.remove('hidden');
-
             try {
-                // Se non abbiamo ancora un ID del PDF, lo carichiamo ora
                 if (!state.pdfResourceId) {
                     updateProgress(20, 'Upload PDF...');
                     await uploadPDF();
                 }
-
                 updateProgress(50, 'Preparazione dati...');
                 const formData = createFormData();
-
                 updateProgress(70, 'Compilazione PDF...');
                 await compilePDF(formData);
-
                 updateProgress(100, 'Completato!');
                 btn.textContent = '✅ Compilazione completata';
                 btn.style.background = '#10b981';
-
             } catch (error) {
                 log(`❌ Errore: ${error.message}`, 'error');
                 btn.disabled = false;
@@ -414,7 +401,6 @@
             document.getElementById('progressText').textContent = text;
         }
 
-        // Clear log
         document.getElementById('clearLogBtn').addEventListener('click', () => {
             document.getElementById('logArea').innerHTML = '';
             log('Log pulito', 'info');
@@ -422,7 +408,6 @@
 
         // NUOVA FUNZIONE DI DEBUG
         async function getPdfInfo() {
-            // Dobbiamo prima fare l'upload per avere un ID su cui lavorare
             if (!state.pdfFile) {
                 log('❌ Prima carica un PDF per analizzarlo!', 'error');
                 return;
@@ -431,16 +416,18 @@
                 log('🔬 Upload del PDF per l\'analisi in corso...', 'api');
                 try {
                     await uploadPDF();
-                } catch(e) {
+                } catch (e) {
                     log(`❌ Fallito l'upload per l'analisi: ${e.message}`, 'error');
                     return;
                 }
             }
 
             log('🔬 Richiesta informazioni sul PDF...', 'api');
-
             const form = new FormData();
             form.append('id', state.pdfResourceId);
+            
+            // === CORREZIONE 2: Aggiungiamo il campo 'queries' ===
+            form.append('queries', 'formFields');
 
             try {
                 const response = await fetch(`${API_BASE}/pdf-info`, {
@@ -459,7 +446,6 @@
                 log('-------------------------------------------', 'success');
                 log('NOMI DEI CAMPI TROVATI (primi 20):', 'success');
                 
-                // Usiamo console.log per mostrare l'oggetto interattivo
                 console.log('Dati completi ricevuti da /pdf-info:', data);
 
                 if (data.formFields && data.formFields.length > 0) {
@@ -475,11 +461,9 @@
                 log(`❌ Errore durante l'analisi: ${error.message}`, 'error');
             }
         }
-        // Fine della nuova funzione di debug
-
+        
         // Initialize
         log('Sistema inizializzato', 'success');
-        
     </script>
 
 </body>
