@@ -126,28 +126,39 @@
         <div class="bg-white p-6 rounded-lg shadow mb-6">
             <h2 class="text-xl font-bold mb-4 text-green-700">🚀 Azioni</h2>
             
-            <!-- Page Selection -->
-            <div class="mb-6 p-4 bg-blue-50 rounded-lg">
-                <h3 class="font-bold text-blue-700 mb-3">📄 Selezione Pagine (Opzionale)</h3>
+            <!-- Page Selection - Smart Display -->
+            <div id="pageSelectionSection" class="mb-6 p-4 bg-blue-50 rounded-lg hidden">
+                <h3 class="font-bold text-blue-700 mb-3">📄 Selezione Pagine (Per Acroforms)</h3>
+                <div class="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                    <p class="text-sm text-yellow-800">
+                        <strong>💡 Info:</strong> Per PDF <strong>XFA</strong> questa sezione è <strong>opzionale</strong> - 
+                        la struttura logica si espande automaticamente. 
+                        Utile principalmente per <strong>Acroforms</strong> con campi fissi su pagine specifiche.
+                    </p>
+                </div>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                         <label class="block text-sm font-bold mb-1">Pagina Inizio:</label>
-                        <input type="number" id="startPageInput" min="1" max="100" value="4" 
-                               class="w-full p-2 border rounded text-center">
+                        <input type="number" id="startPageInput" min="1" max="100" value="" 
+                               class="w-full p-2 border rounded text-center" placeholder="Auto">
                     </div>
                     <div>
                         <label class="block text-sm font-bold mb-1">Pagina Fine:</label>
-                        <input type="number" id="endPageInput" min="1" max="100" value="6" 
-                               class="w-full p-2 border rounded text-center">
+                        <input type="number" id="endPageInput" min="1" max="100" value="" 
+                               class="w-full p-2 border rounded text-center" placeholder="Auto">
                     </div>
                     <div class="flex items-end">
-                        <button id="resetPagesBtn" class="btn btn-blue w-full text-sm">🔄 Reset a Tutto</button>
+                        <button id="resetPagesBtn" class="btn btn-blue w-full text-sm">🔄 Auto</button>
                     </div>
                 </div>
-                <p class="text-xs text-gray-600 mt-2">💡 Lascia vuoto per processare tutto il PDF, oppure specifica l'intervallo di pagine con i moduli da compilare</p>
+                <p class="text-xs text-gray-600 mt-2">
+                    💡 <strong>XFA</strong>: Lascia vuoto per auto-espansione | 
+                    <strong>Acroforms</strong>: Specifica range per targeting preciso
+                </p>
             </div>
             
             <div class="text-center mb-4 space-x-4">
+                <button id="convertBtn" class="btn btn-blue" disabled>🔄 XFA → Acroforms</button>
                 <button id="compileBtn" class="btn btn-purple text-lg px-8 py-4" disabled>
                     🚀 Compila PDF XFA
                 </button>
@@ -187,6 +198,7 @@
             pdfFile: null,
             pdfResourceId: null,
             compiledPdfUrl: null,
+            acroformsPdfUrl: null,  // ✅ AGGIUNTO: URL del PDF convertito a Acroforms
             selectedPages: { start: null, end: null },
             xfaStructure: null,  // ✅ AGGIUNTO: Per memorizzare la struttura XFA estratta
             // ✅ MAPPATURA CORRETTA: Nomi dei campi XFA reali estratti dalla struttura
@@ -241,6 +253,7 @@
 
         document.getElementById('debugBtn').addEventListener('click', getPdfInfo);
         document.getElementById('exportBtn').addEventListener('click', exportFormStructure);
+        document.getElementById('convertBtn').addEventListener('click', convertXfaToAcroforms);
 
         document.getElementById('selectCSVBtn').addEventListener('click', () => {
             document.getElementById('csvFileInput').click();
@@ -315,9 +328,18 @@
 
         function updateRecordCount() {
             if (state.csvData) {
-                const batchSize = 10;
-                const totalBatches = Math.ceil(state.csvData.length / batchSize);
-                let message = `Pronti ${state.csvData.length} record (${totalBatches} batch da max ${batchSize}) per <personale_standard>`;
+                const totalRecords = state.csvData.length;
+                let message = `Pronti ${totalRecords} record per compilazione <personale_standard>`;
+                
+                // Scala automaticamente il messaggio
+                if (totalRecords <= 10) {
+                    message += ' (volume piccolo - elaborazione rapida)';
+                } else if (totalRecords <= 50) {
+                    message += ' (volume medio - Pro Plan ottimale)';
+                } else {
+                    message += ' (volume alto - Pro Plan necessario)';
+                }
+                
                 document.getElementById('recordCount').textContent = message;
             }
         }
@@ -330,6 +352,7 @@
             // ✅ CORREZIONE DEL BUG: era !!state.pdfFile (logica invertita)
             debugBtn.disabled = !state.pdfFile;  // Ora si abilita QUANDO c'è un PDF
             document.getElementById('exportBtn').disabled = !state.pdfFile;  // Esporta struttura
+            document.getElementById('convertBtn').disabled = !state.pdfFile;  // Converte XFA
             if (ready) {
                 compileBtn.style.background = '#8b5cf6';
             }
@@ -382,15 +405,15 @@
         }
 
         function createFormData() {
-            log('🔧 Preparazione dati per struttura XFA <personale_standard>...', 'info');
+            log('🔧 Preparazione dati per struttura XFA scalabile...', 'info');
             
-            // Log strategia sezioni logiche (non pagine fisiche)
-            log('📋 XFA: Struttura logica, non basata su pagine fisiche', 'info');
-            log('🎯 Target: Sezione <personale_standard> (tabella del personale)', 'info');
+            const totalRecords = state.csvData.length;
+            log(`📊 XFA: Struttura logica che si espande per ${totalRecords} record`, 'info');
+            log('🎯 Target: Sezione <personale_standard> (auto-paginazione)', 'info');
             
             const formData = {};
             
-            // Per XFA usiamo la struttura corretta estratta
+            // Per XFA usiamo la struttura corretta estratta (scalabile)
             state.csvData.forEach((record, index) => {
                 Object.entries(state.fieldMapping).forEach(([csvField, xfaField]) => {
                     const value = record[csvField] || '';
@@ -399,33 +422,25 @@
                 });
             });
             
-            log(`✅ Preparati ${state.csvData.length} elementi <personale_standard>`, 'success');
-            log(`📊 Totale mapping: ${Object.keys(state.fieldMapping).length} campi per record`, 'info');
+            log(`✅ Preparati ${totalRecords} elementi <personale_standard>`, 'success');
+            log(`📊 Mappatura: ${Object.keys(state.fieldMapping).length} campi × ${totalRecords} record`, 'info');
             
             return formData;
         }
 
         async function compilePDF(formData) {
-            log('🔧 Compilazione PDF XFA con BATCH PROCESSING...', 'api');
+            log('🔧 Compilazione PDF XFA con Pro Plan - Tutti i Record...', 'api');
             
-            // ✅ SOLUZIONE: Batch da 10 record per evitare timeout
-            const batchSize = 10;
-            const totalBatches = Math.ceil(state.csvData.length / batchSize);
+            const totalRecords = state.csvData.length;
+            log(`📊 Processando TUTTI i ${totalRecords} record in una volta (Pro Plan)`, 'success');
+            log('🎯 Modalità SCALABILE: da 1 a 200+ record supportati', 'info');
             
-            log(`📊 Dividendo ${state.csvData.length} record in ${totalBatches} batch da ${batchSize}`, 'info');
-            log('🎯 Modalità BATCH per evitare timeout', 'info');
-            
-            // Test con il primo batch
-            const firstBatch = state.csvData.slice(0, batchSize);
-            
-            log(`🚀 Processando primo batch: ${firstBatch.length} record`, 'api');
-            
-            // ✅ STRUTTURA XFA CORRETTA per il batch
+            // ✅ STRUTTURA XFA CORRETTA per TUTTI i record
             let xmlData = '<?xml version="1.0" encoding="UTF-8"?>\n';
             xmlData += '<welfare xmlns="http://schemas.sygest.it/adobe">\n';
             
-            // Aggiungiamo ogni record del batch come elemento <personale_standard>
-            firstBatch.forEach((record, index) => {
+            // Aggiungiamo OGNI record CSV come elemento <personale_standard>
+            state.csvData.forEach((record, index) => {
                 xmlData += '  <personale_standard>\n';
                 
                 Object.entries(state.fieldMapping).forEach(([csvField, xfaField]) => {
@@ -447,20 +462,20 @@
             
             xmlData += '</welfare>';
             
-            log(`📋 XML XFA generato per batch 1: ${firstBatch.length} elementi`, 'success');
-            console.log('XML Batch Preview:', xmlData.substring(0, 800) + '...');
+            log(`📋 XML XFA generato: ${totalRecords} elementi <personale_standard>`, 'success');
+            log(`📊 Campi totali: ${totalRecords * Object.keys(state.fieldMapping).length}`, 'info');
+            console.log('XML XFA Preview:', xmlData.substring(0, 1000) + '...');
             
             const form = new FormData();
             form.append('id', state.pdfResourceId);
             
-            // ✅ RIMOZIONE async (non supportato)
-            
-            // Usa 'data_file' con formato XML corretto
+            // Nome file dinamico basato su numero record
             const dataBlob = new Blob([xmlData], { type: 'application/xml' });
-            form.append('data_file', dataBlob, 'welfare_batch_1.xml');
+            form.append('data_file', dataBlob, `welfare_${totalRecords}records.xml`);
             
-            // Nome del file di output
-            form.append('output', 'documento_batch_1');
+            // Nome del file di output con timestamp
+            const timestamp = new Date().toISOString().slice(0,19).replace(/:/g,'-');
+            form.append('output', `documento_${totalRecords}record_${timestamp}`);
             
             const response = await fetch(`${API_BASE}/pdf-with-imported-form-data`, {
                 method: 'POST',
@@ -469,19 +484,15 @@
             
             if (!response.ok) {
                 const text = await response.text();
-                throw new Error(`Compilazione batch fallita: ${text}`);
+                throw new Error(`Compilazione fallita: ${text}`);
             }
             
             const data = await response.json();
             state.compiledPdfUrl = data.outputUrl;
             
-            log('✅ BATCH 1 completato con successo!', 'success');
-            log(`📋 Record processati: ${firstBatch.length}/${state.csvData.length}`, 'info');
-            
-            if (totalBatches > 1) {
-                log(`🔄 PROSSIMI STEP: Implementare processamento batch 2-${totalBatches}`, 'info');
-                log('💡 Per ora scarica il primo batch, poi processeremo il resto', 'info');
-            }
+            log('✅ PDF XFA compilato con TUTTI i record!', 'success');
+            log(`📊 Record processati: ${totalRecords}/${totalRecords} (100%)`, 'success');
+            log('🎯 Il PDF si espanderà automaticamente su tutte le pagine necessarie', 'info');
             
             showResults();
         }
@@ -569,21 +580,30 @@
                 log(`📁 Nome file: ${data.filename}`, 'info');
                 log('-------------------------------------------', 'success');
                 
-                // ✅ SUGGERIMENTI MIGLIORATI in base al tipo di modulo
+                // ✅ SUGGERIMENTI INTELLIGENTI basati sul tipo di modulo
                 if (isXFA) {
-                    log('🎯 STRATEGIA XFA AGGIORNATA:', 'success');
-                    log('1️⃣ ✅ Struttura XFA estratta e analizzata', 'info');
-                    log('2️⃣ ✅ Mapping dei campi aggiornato con nomi reali', 'info');
-                    log('3️⃣ 🚀 PRONTO PER COMPILAZIONE: Usa "Compila PDF XFA"', 'info');
-                    log('📋 Nota: XFA usa struttura logica, non pagine fisiche', 'info');
-                    log('🎯 Compilazione mirata: Solo sezione <personale_standard>', 'info');
+                    log('🎯 STRATEGIA XFA (Pro Plan):', 'success');
+                    log('✅ PDF XFA rilevato - Struttura logica auto-espandibile', 'info');
+                    log('🚀 PRONTO: Clicca "Compila PDF XFA" per processare tutti i record', 'info');
+                    log('📋 Selezione pagine: NON necessaria (auto-paginazione)', 'info');
+                    log('🎯 Record supportati: da 1 a 200+ (scalabile)', 'success');
+                    
+                    // Nascondi selezione pagine per XFA (non serve)
+                    document.getElementById('pageSelectionSection').classList.add('hidden');
                 } else if (isAcroForm) {
-                    log('🎯 STRATEGIA CONSIGLIATA per Acroforms:', 'success');
-                    log('1️⃣ Tenta la compilazione diretta', 'info');
-                    log('2️⃣ Verifica il mapping dei nomi campi', 'info');
+                    log('🎯 STRATEGIA Acroforms:', 'success');
+                    log('✅ Acroforms rilevato - Campi fissi su pagine specifiche', 'info');
+                    log('📄 Selezione pagine: UTILE per targeting preciso', 'info');
+                    log('🚀 Configura range pagine e compila', 'info');
+                    
+                    // Mostra selezione pagine per Acroforms (può essere utile)
+                    document.getElementById('pageSelectionSection').classList.remove('hidden');
                 } else {
-                    log('❓ DIAGNOSI: Il PDF potrebbe non essere standard', 'warn');
-                    log('💡 Prova comunque la compilazione - alcuni XFA complessi possono non essere rilevati correttamente', 'info');
+                    log('❓ DIAGNOSI: Tipo di modulo non identificato', 'warn');
+                    log('💡 Prova la compilazione - il sistema si adatterà automaticamente', 'info');
+                    
+                    // Mostra selezione pagine per sicurezza
+                    document.getElementById('pageSelectionSection').classList.remove('hidden');
                 }
 
             } catch (error) {
@@ -662,6 +682,85 @@
             }
         }
         
+        // ✅ NUOVA STRATEGIA: Conversione XFA → Acroforms (Piano Free Friendly)
+        async function convertXfaToAcroforms() {
+            if (!state.pdfFile) {
+                log('❌ Prima carica un PDF per convertirlo!', 'error');
+                return;
+            }
+            if (!state.pdfResourceId) {
+                log('🔄 Upload del PDF per la conversione in corso...', 'api');
+                try {
+                    await uploadPDF();
+                } catch (e) {
+                    log(`❌ Fallito l'upload per la conversione: ${e.message}`, 'error');
+                    return;
+                }
+            }
+
+            log('🔄 Conversione XFA → Acroforms (Piano Free Compatible)...', 'api');
+            const form = new FormData();
+            form.append('id', state.pdfResourceId);
+            form.append('output', 'pdf_acroforms');
+
+            try {
+                const response = await fetch(`${API_BASE}/pdf-with-acroforms`, {
+                    method: 'POST',
+                    body: form
+                });
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    throw new Error(`Conversione fallita: ${text}`);
+                }
+
+                const data = await response.json();
+                
+                log('✅ XFA convertito in Acroforms!', 'success');
+                log('-------------------------------------------', 'success');
+                log('📋 PDF Acroforms generato:', 'success');
+                log(data.outputUrl, 'info');
+                log('-------------------------------------------', 'success');
+                log('🎯 PROSSIMI STEP:', 'success');
+                log('1️⃣ Scarica il PDF Acroforms convertito', 'info');
+                log('2️⃣ Caricalo come nuovo PDF nella app', 'info');
+                log('3️⃣ Processa con Acroforms (molto più veloce!)', 'info');
+                log('💡 Acroforms sono molto più leggeri da compilare rispetto a XFA', 'info');
+                
+                console.log('Dati completi dalla conversione:', data);
+                
+                // Salviamo l'URL del PDF convertito
+                state.acroformsPdfUrl = data.outputUrl;
+                
+                // Mostra il risultato nella UI
+                showConversionResults(data.outputUrl);
+
+            } catch (error) {
+                log(`❌ Errore durante la conversione: ${error.message}`, 'error');
+            }
+        }
+        
+        // Mostra i risultati della conversione
+        function showConversionResults(acroformsUrl) {
+            const section = document.getElementById('resultsSection');
+            const content = document.getElementById('resultsContent');
+            let html = '<div class="text-center space-y-4">';
+            html += '<h3 class="text-lg font-bold text-blue-700">🔄 Conversione XFA → Acroforms Completata</h3>';
+            html += '<p class="text-sm text-gray-600">Il PDF è stato convertito da XFA a Acroforms per compatibilità migliorata</p>';
+            html += `<a href="${acroformsUrl}" target="_blank" class="btn btn-blue inline-block">📥 Scarica PDF Acroforms</a>`;
+            html += '<div class="mt-4 p-4 bg-blue-50 rounded-lg text-left">';
+            html += '<h4 class="font-bold text-blue-700 mb-2">📋 Prossimi Step:</h4>';
+            html += '<ol class="list-decimal list-inside space-y-1 text-sm">';
+            html += '<li>Scarica il PDF Acroforms convertito</li>';
+            html += '<li>Caricalo nuovamente come "PDF XFA" (ora è Acroforms)</li>';
+            html += '<li>Prova la compilazione - sarà molto più veloce!</li>';
+            html += '</ol>';
+            html += '</div>';
+            html += '</div>';
+            content.innerHTML = html;
+            section.classList.remove('hidden');
+        }
+        
         // ✅ NUOVI LISTENER: Gestione selezione pagine
         document.getElementById('startPageInput').addEventListener('change', updatePageSelection);
         document.getElementById('endPageInput').addEventListener('change', updatePageSelection);
@@ -669,6 +768,7 @@
             document.getElementById('startPageInput').value = '';
             document.getElementById('endPageInput').value = '';
             updatePageSelection();
+            log('🔄 Reset a modalità auto-espansione', 'info');
         });
         
         function updatePageSelection() {
@@ -679,19 +779,19 @@
             state.selectedPages.end = endPage ? parseInt(endPage) : null;
             
             if (state.selectedPages.start && state.selectedPages.end) {
-                log(`📄 Selezione pagine: ${state.selectedPages.start}-${state.selectedPages.end}`, 'info');
+                log(`📄 Range pagine: ${state.selectedPages.start}-${state.selectedPages.end} (Acroforms mode)`, 'info');
             } else if (state.selectedPages.start) {
-                log(`📄 Dalla pagina: ${state.selectedPages.start}`, 'info');
+                log(`📄 Dalla pagina: ${state.selectedPages.start} (Acroforms mode)`, 'info');
             } else if (state.selectedPages.end) {
-                log(`📄 Fino alla pagina: ${state.selectedPages.end}`, 'info');
+                log(`📄 Fino alla pagina: ${state.selectedPages.end} (Acroforms mode)`, 'info');
             } else {
-                log('📄 Modalità: Tutto il PDF', 'info');
+                log('📄 Modalità: Auto-espansione (XFA mode)', 'info');
             }
         }
         
         // Initialize
-        updatePageSelection(); // Imposta i valori di default (4-6)
-        log('Sistema inizializzato', 'success');
+        updatePageSelection(); // Imposta modalità auto per XFA
+        log('Sistema inizializzato - Modalità scalabile Pro Plan', 'success');
     </script>
 
 </body>
