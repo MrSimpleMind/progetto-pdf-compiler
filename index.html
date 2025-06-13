@@ -432,12 +432,14 @@
         async function compilePDF(formData) {
             log('Compilazione PDF con form data semplice...', 'api');
             
-            const form = new FormData();
-            form.append('id', state.pdfResourceId);
-            
-            const jsonData = JSON.stringify(formData, null, 2);
-            const jsonBlob = new Blob([jsonData], { type: 'application/json' });
-            form.append('form_data', jsonBlob, 'data.json');
+                    const form = new FormData();
+        form.append('id', state.pdfResourceId);
+        
+        // Convertiamo i nostri dati in una stringa JSON
+        const jsonData = JSON.stringify(formData);
+        
+        // La alleghiamo direttamente come stringa, usando il parametro 'data'
+        form.append('data', jsonData);
 
             // La chiamata ora usa il nostro /api e rimettiamo la chiave negli headers
             const response = await fetch(`${API_BASE}/filled-pdf`, {
