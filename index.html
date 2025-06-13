@@ -394,9 +394,6 @@
             // La chiamata ora usa il nostro /api e rimettiamo la chiave negli headers
             const response = await fetch(`${API_BASE}/upload`, {
                 method: 'POST',
-                headers: {
-                    'Api-Key': state.apiKey
-                },
                 body: formData
             });
 
@@ -445,9 +442,6 @@
             // La chiamata ora usa il nostro /api e rimettiamo la chiave negli headers
             const response = await fetch(`${API_BASE}/pdf-with-updated-form-field-values`, {
                 method: 'POST',
-                headers: {
-                    'Api-Key': state.apiKey
-                },
                 body: form
             });
 
