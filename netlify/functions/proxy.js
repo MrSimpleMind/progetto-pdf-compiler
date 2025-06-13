@@ -1,5 +1,8 @@
 // File: netlify/functions/proxy.js
 
+// Usiamo "Buffer" per decodificare i file da Base64
+const { Buffer } = require('buffer');
+
 exports.handler = async function (event, context) {
   // Gestione della richiesta preliminare CORS (OPTIONS)
   if (event.httpMethod === 'OPTIONS') {
@@ -7,7 +10,7 @@ exports.handler = async function (event, context) {
       statusCode: 204,
       headers: {
         "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Content-Type", // Rimuoviamo Api-Key da qui
+        "Access-Control-Allow-Headers": "Content-Type",
         "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
       },
       body: ''
@@ -18,8 +21,7 @@ exports.handler = async function (event, context) {
   const path = event.path.replace('/api', '');
   const targetUrl = `https://api.pdfrest.com${path}`;
 
-  // === LA PARTE PIÙ IMPORTANTE ===
-  // Leggiamo la chiave API in modo sicuro dalle variabili d'ambiente di Netlify
+  // Leggiamo la chiave API sicura dalle variabili d'ambiente
   const apiKey = process.env.PDFREST_API_KEY;
 
   if (!apiKey) {
@@ -27,14 +29,21 @@ exports.handler = async function (event, context) {
   }
 
   try {
+    // ================================================================
+    // === QUESTA È LA CORREZIONE CHIAVE ===
+    // Controlliamo se Netlify ha codificato il corpo della richiesta in Base64.
+    // Se sì, lo decodifichiamo per riottenere il file binario originale.
+    const requestBody = event.isBase64Encoded ? Buffer.from(event.body, 'base64') : event.body;
+    // ================================================================
+
     const response = await fetch(targetUrl, {
       method: event.httpMethod,
       headers: {
-        // Il proxy aggiunge la chiave API qui, in modo sicuro
         'Api-Key': apiKey,
         'Content-Type': event.headers['content-type'],
       },
-      body: event.body,
+      // Usiamo il corpo della richiesta, eventualmente decodificato
+      body: requestBody,
     });
 
     const responseBody = await response.text();
