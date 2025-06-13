@@ -315,7 +315,9 @@
 
         function updateRecordCount() {
             if (state.csvData) {
-                let message = `Pronti ${state.csvData.length} record da compilare nella sezione <personale_standard>`;
+                const batchSize = 10;
+                const totalBatches = Math.ceil(state.csvData.length / batchSize);
+                let message = `Pronti ${state.csvData.length} record (${totalBatches} batch da max ${batchSize}) per <personale_standard>`;
                 document.getElementById('recordCount').textContent = message;
             }
         }
@@ -404,14 +406,26 @@
         }
 
         async function compilePDF(formData) {
-            log('🔧 Compilazione PDF XFA con struttura corretta estratta...', 'api');
+            log('🔧 Compilazione PDF XFA con BATCH PROCESSING...', 'api');
             
-            // ✅ STRUTTURA XFA CORRETTA: Basata sulla struttura reale estratta
+            // ✅ SOLUZIONE: Batch da 10 record per evitare timeout
+            const batchSize = 10;
+            const totalBatches = Math.ceil(state.csvData.length / batchSize);
+            
+            log(`📊 Dividendo ${state.csvData.length} record in ${totalBatches} batch da ${batchSize}`, 'info');
+            log('🎯 Modalità BATCH per evitare timeout', 'info');
+            
+            // Test con il primo batch
+            const firstBatch = state.csvData.slice(0, batchSize);
+            
+            log(`🚀 Processando primo batch: ${firstBatch.length} record`, 'api');
+            
+            // ✅ STRUTTURA XFA CORRETTA per il batch
             let xmlData = '<?xml version="1.0" encoding="UTF-8"?>\n';
             xmlData += '<welfare xmlns="http://schemas.sygest.it/adobe">\n';
             
-            // Aggiungiamo ogni record CSV come un elemento <personale_standard>
-            state.csvData.forEach((record, index) => {
+            // Aggiungiamo ogni record del batch come elemento <personale_standard>
+            firstBatch.forEach((record, index) => {
                 xmlData += '  <personale_standard>\n';
                 
                 Object.entries(state.fieldMapping).forEach(([csvField, xfaField]) => {
@@ -433,22 +447,20 @@
             
             xmlData += '</welfare>';
             
-            log(`📋 XML XFA generato: ${state.csvData.length} elementi <personale_standard>`, 'success');
-            log('🎯 Modalità ASINCRONA per evitare timeout', 'info');
-            console.log('XML XFA Preview:', xmlData.substring(0, 800) + '...');
+            log(`📋 XML XFA generato per batch 1: ${firstBatch.length} elementi`, 'success');
+            console.log('XML Batch Preview:', xmlData.substring(0, 800) + '...');
             
             const form = new FormData();
             form.append('id', state.pdfResourceId);
             
-            // ✅ SOLUZIONE TIMEOUT: Processing asincrono
-            form.append('async', 'true');
+            // ✅ RIMOZIONE async (non supportato)
             
             // Usa 'data_file' con formato XML corretto
             const dataBlob = new Blob([xmlData], { type: 'application/xml' });
-            form.append('data_file', dataBlob, 'welfare_personale.xml');
+            form.append('data_file', dataBlob, 'welfare_batch_1.xml');
             
             // Nome del file di output
-            form.append('output', 'documento_compilato');
+            form.append('output', 'documento_batch_1');
             
             const response = await fetch(`${API_BASE}/pdf-with-imported-form-data`, {
                 method: 'POST',
@@ -457,77 +469,24 @@
             
             if (!response.ok) {
                 const text = await response.text();
-                throw new Error(`Compilazione XFA fallita: ${text}`);
+                throw new Error(`Compilazione batch fallita: ${text}`);
             }
             
             const data = await response.json();
+            state.compiledPdfUrl = data.outputUrl;
             
-            // ✅ GESTIONE ASYNC: Controlla se è processing asincrono
-            if (data.requestId) {
-                log('🔄 Processing asincrono avviato...', 'api');
-                log(`📋 Request ID: ${data.requestId}`, 'info');
-                log('⏳ Polling per lo stato del processing...', 'info');
-                
-                // Polling per il risultato
-                await pollForResult(data.requestId);
-            } else {
-                // Processing sincrono completato
-                state.compiledPdfUrl = data.outputUrl;
-                log('✅ PDF XFA compilato con struttura corretta!', 'success');
-                showResults();
+            log('✅ BATCH 1 completato con successo!', 'success');
+            log(`📋 Record processati: ${firstBatch.length}/${state.csvData.length}`, 'info');
+            
+            if (totalBatches > 1) {
+                log(`🔄 PROSSIMI STEP: Implementare processamento batch 2-${totalBatches}`, 'info');
+                log('💡 Per ora scarica il primo batch, poi processeremo il resto', 'info');
             }
+            
+            showResults();
         }
         
-        // ✅ NUOVA FUNZIONE: Polling per processing asincrono
-        async function pollForResult(requestId) {
-            const maxAttempts = 30; // 5 minuti di polling
-            let attempts = 0;
-            
-            const poll = async () => {
-                attempts++;
-                log(`🔄 Controllo stato (tentativo ${attempts}/${maxAttempts})...`, 'api');
-                
-                try {
-                    const response = await fetch(`${API_BASE}/status/${requestId}`, {
-                        method: 'GET'
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error(`Status check fallito: ${await response.text()}`);
-                    }
-                    
-                    const status = await response.json();
-                    
-                    if (status.status === 'complete') {
-                        state.compiledPdfUrl = status.outputUrl;
-                        log('✅ PDF XFA compilato con successo (modalità asincrona)!', 'success');
-                        showResults();
-                        return;
-                    } else if (status.status === 'failed') {
-                        throw new Error(`Processing fallito: ${status.error || 'Errore sconosciuto'}`);
-                    } else {
-                        // Ancora in processing
-                        log(`⏳ Stato: ${status.status || 'processing'}...`, 'info');
-                        
-                        if (attempts < maxAttempts) {
-                            // Aspetta 10 secondi prima del prossimo check
-                            setTimeout(poll, 10000);
-                        } else {
-                            throw new Error('Timeout del polling - operazione troppo lunga');
-                        }
-                    }
-                } catch (error) {
-                    log(`❌ Errore nel polling: ${error.message}`, 'error');
-                    const btn = document.getElementById('compileBtn');
-                    btn.disabled = false;
-                    btn.textContent = '🚀 Compila PDF XFA';
-                    document.getElementById('processProgress').classList.add('hidden');
-                }
-            };
-            
-            // Avvia il polling dopo 5 secondi
-            setTimeout(poll, 5000);
-        }
+
 
         function showResults() {
             const section = document.getElementById('resultsSection');
