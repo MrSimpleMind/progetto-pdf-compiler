@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Compilatore PDF XFA - ATS Monza Brianza (con Proxy)</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/3.4.1/tailwind.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         .log-area {
@@ -55,41 +55,25 @@
     <div class="container mx-auto p-6 max-w-6xl">
         <!-- Header -->
         <div class="bg-gradient-to-r from-blue-600 to-green-600 text-white p-6 rounded-lg mb-6 text-center">
-            <h1 class="text-3xl font-bold mb-2">📋 Compilatore PDF XFA - ATS Monza Brianza</h1>
+            <h1 class="text-3xl font-bold mb-2">📋 Compilatore PDF XFA</h1>
             <p class="opacity-90">Compila automaticamente la tabella del personale nel PDF XFA</p>
-            <div class="mt-3 bg-yellow-500 text-yellow-900 p-2 rounded">
-                <strong>⚠️ Versione con Proxy CORS</strong> - Soluzione temporanea per test locale
-            </div>
-        </div>
-
-        <!-- CORS Warning -->
-        <div class="bg-yellow-50 border border-yellow-200 p-4 rounded-lg mb-6">
-            <h3 class="font-bold text-yellow-800 mb-2">⚠️ Nota importante sul Proxy CORS</h3>
-            <p class="text-sm text-yellow-700">
-                Questa versione usa un proxy pubblico per aggirare le restrizioni CORS. 
-                <strong>Non usare in produzione!</strong> Per un uso sicuro:
-            </p>
-            <ul class="list-disc list-inside text-sm mt-2 text-yellow-700">
-                <li>Usa un server web locale (vedi istruzioni sotto)</li>
-                <li>O crea un backend che gestisca le chiamate API</li>
-            </ul>
         </div>
 
         <!-- Instructions -->
         <div class="bg-blue-50 border border-blue-200 p-6 rounded-lg mb-6">
             <h2 class="text-lg font-bold text-blue-700 mb-3">ℹ️ Come funziona</h2>
             <ol class="list-decimal list-inside space-y-2 text-sm">
-                <li>Inserisci la tua API Key di pdfRest</li>
-                <li>Carica il file CSV con i dati del personale</li>
-                <li>Carica il PDF XFA dell'ATS Monza Brianza</li>
-                <li>Il sistema compilerà la tabella del personale</li>
+                <li>Inserisci la tua API Key di pdfRest (verrà usata tramite un proxy sicuro).</li>
+                <li>Carica il file CSV con i dati del personale.</li>
+                <li>Carica il PDF XFA da compilare.</li>
+                <li>(Opzionale ma consigliato) Clicca "Analizza Campi PDF" per vedere i nomi dei campi.</li>
+                <li>Clicca "Compila PDF XFA" per generare il file finale.</li>
             </ol>
         </div>
 
         <!-- API Configuration -->
         <div class="bg-white p-6 rounded-lg shadow mb-6">
             <h2 class="text-xl font-bold mb-4 text-blue-700">🔑 Configurazione API pdfRest</h2>
-            
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div>
                     <label class="block text-sm font-bold mb-2">API Key:</label>
@@ -105,7 +89,6 @@
                     </div>
                     <div id="apiStatus" class="mt-2 text-sm"></div>
                 </div>
-                
                 <div class="flex flex-col justify-end">
                     <button id="saveApiBtn" class="btn btn-green mb-2">💾 Salva API Key</button>
                 </div>
@@ -115,9 +98,7 @@
         <!-- File Upload -->
         <div class="bg-white p-6 rounded-lg shadow mb-6">
             <h2 class="text-xl font-bold mb-4 text-purple-700">📁 Caricamento File</h2>
-            
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <!-- CSV Upload -->
                 <div class="border-2 border-dashed border-green-400 rounded-lg p-6">
                     <div class="text-center mb-4">
                         <div class="text-4xl mb-2">📊</div>
@@ -128,8 +109,6 @@
                     <div id="csvStatus" class="text-sm mb-3"></div>
                     <div id="csvPreview" class="hidden bg-gray-50 p-3 rounded text-xs max-h-40 overflow-y-auto"></div>
                 </div>
-
-                <!-- PDF Upload -->
                 <div class="border-2 border-dashed border-purple-400 rounded-lg p-6">
                     <div class="text-center mb-4">
                         <div class="text-4xl mb-2">📄</div>
@@ -144,15 +123,14 @@
 
         <!-- Process Control -->
         <div class="bg-white p-6 rounded-lg shadow mb-6">
-            <h2 class="text-xl font-bold mb-4 text-green-700">🚀 Compilazione PDF</h2>
-            
-            <div class="text-center mb-4">
+            <h2 class="text-xl font-bold mb-4 text-green-700">🚀 Azioni</h2>
+            <div class="text-center mb-4 space-x-4">
                 <button id="compileBtn" class="btn btn-purple text-lg px-8 py-4" disabled>
                     🚀 Compila PDF XFA
                 </button>
+                <button id="debugBtn" class="btn btn-blue" disabled>🔍 Analizza Campi PDF</button>
                 <p class="text-sm text-gray-600 mt-2" id="recordCount">In attesa dei file...</p>
             </div>
-
             <div id="processProgress" class="hidden mb-4">
                 <div class="progress-bar mb-2">
                     <div id="progressFill" class="progress-fill" style="width: 0%"></div>
@@ -185,7 +163,7 @@
             pdfFile: null,
             pdfResourceId: null,
             compiledPdfUrl: null,
-            useProxy: true,
+            // Questo è il MAPPING ATTUALE. Lo modificheremo in base ai risultati del debug.
             fieldMapping: {
                 'COGNOME': 'Cognome',
                 'NOME': 'Nome',
@@ -201,7 +179,6 @@
         };
 
         // API configuration
-        // API_BASE ora punta al nostro proxy interno su Netlify.
         const API_BASE = '/api';
 
         // Utility functions
@@ -214,7 +191,6 @@
                 'success': '#00ffff',
                 'api': '#ff69b4'
             };
-            
             const logArea = document.getElementById('logArea');
             const color = colors[type] || '#00ff00';
             logArea.innerHTML += `<div style="color: ${color};">[${now}] ${message}</div>`;
@@ -234,12 +210,13 @@
                 log('Inserisci l\'API key', 'error');
                 return;
             }
-            
             state.apiKey = apiKey;
-                        log('✅ API key salvata!', 'success');
+            log('✅ API key salvata!', 'success');
             document.getElementById('apiStatus').innerHTML = '<span class="status-ok">✅ Configurato</span>';
             checkReadyState();
         });
+
+        document.getElementById('debugBtn').addEventListener('click', getPdfInfo);
 
         // CSV handling
         document.getElementById('selectCSVBtn').addEventListener('click', () => {
@@ -249,34 +226,23 @@
         document.getElementById('csvFileInput').addEventListener('change', (event) => {
             const file = event.target.files[0];
             if (!file) return;
-
             log('Caricamento CSV...', 'info');
-            
             const reader = new FileReader();
             reader.onload = (e) => {
-                try {
-                    Papa.parse(e.target.result, {
-                        header: true,
-                        delimiter: ";",
-                        skipEmptyLines: true,
-                        complete: (results) => {
-                            state.csvData = results.data.filter(row => row['COGNOME'] && row['COGNOME'].trim());
-                            
-                            log(`✅ CSV caricato: ${state.csvData.length} record trovati`, 'success');
-                            document.getElementById('csvStatus').innerHTML = 
-                                `<span class="status-ok">✅ ${state.csvData.length} record</span>`;
-                            
-                            showCSVPreview();
-                            updateRecordCount();
-                            checkReadyState();
-                        },
-                        error: (error) => {
-                            log(`❌ Errore parsing CSV: ${error.message}`, 'error');
-                        }
-                    });
-                } catch (error) {
-                    log(`❌ Errore lettura CSV: ${error.message}`, 'error');
-                }
+                Papa.parse(e.target.result, {
+                    header: true,
+                    delimiter: ";",
+                    skipEmptyLines: true,
+                    complete: (results) => {
+                        state.csvData = results.data.filter(row => row['COGNOME'] && row['COGNOME'].trim());
+                        log(`✅ CSV caricato: ${state.csvData.length} record trovati`, 'success');
+                        document.getElementById('csvStatus').innerHTML = `<span class="status-ok">✅ ${state.csvData.length} record</span>`;
+                        showCSVPreview();
+                        updateRecordCount();
+                        checkReadyState();
+                    },
+                    error: (error) => log(`❌ Errore parsing CSV: ${error.message}`, 'error')
+                });
             };
             reader.readAsText(file, 'UTF-8');
         });
@@ -285,12 +251,10 @@
             const preview = document.getElementById('csvPreview');
             let html = '<table class="w-full text-xs">';
             html += '<thead><tr class="border-b">';
-            
             Object.keys(state.fieldMapping).forEach(header => {
                 html += `<th class="text-left p-1 text-[10px]">${header}</th>`;
             });
             html += '</tr></thead><tbody>';
-            
             state.csvData.slice(0, 3).forEach((row) => {
                 html += '<tr class="border-b">';
                 Object.keys(state.fieldMapping).forEach(header => {
@@ -299,13 +263,10 @@
                 });
                 html += '</tr>';
             });
-            
             html += '</tbody></table>';
-            
             if (state.csvData.length > 3) {
                 html += `<p class="text-center mt-2 text-gray-500">... e altri ${state.csvData.length - 3} record</p>`;
             }
-            
             preview.innerHTML = html;
             preview.classList.remove('hidden');
         }
@@ -318,34 +279,32 @@
         document.getElementById('pdfFileInput').addEventListener('change', (event) => {
             const file = event.target.files[0];
             if (!file) return;
-
             if (file.type !== 'application/pdf') {
                 log('❌ Il file deve essere un PDF', 'error');
                 return;
             }
-
             state.pdfFile = file;
+            state.pdfResourceId = null; // Resetta l'ID se il file cambia
             const sizeMB = (file.size / 1024 / 1024).toFixed(2);
             log(`📄 PDF selezionato: ${file.name} (${sizeMB} MB)`, 'success');
-            document.getElementById('pdfStatus').innerHTML = 
-                `<span class="status-ok">✅ ${file.name}</span>`;
-            
+            document.getElementById('pdfStatus').innerHTML = `<span class="status-ok">✅ ${file.name}</span>`;
             checkReadyState();
         });
 
         function updateRecordCount() {
-            const el = document.getElementById('recordCount');
             if (state.csvData) {
-                el.textContent = `Pronti ${state.csvData.length} record da compilare`;
+                document.getElementById('recordCount').textContent = `Pronti ${state.csvData.length} record da compilare`;
             }
         }
 
         function checkReadyState() {
             const ready = state.apiKey && state.csvData && state.pdfFile;
-            const btn = document.getElementById('compileBtn');
-            btn.disabled = !ready;
+            const compileBtn = document.getElementById('compileBtn');
+            const debugBtn = document.getElementById('debugBtn');
+            compileBtn.disabled = !ready;
+            debugBtn.disabled = !state.pdfFile;
             if (ready) {
-                btn.style.background = '#8b5cf6';
+                compileBtn.style.background = '#8b5cf6';
             }
         }
 
@@ -359,16 +318,17 @@
             const btn = document.getElementById('compileBtn');
             btn.disabled = true;
             btn.textContent = '⏳ Compilazione in corso...';
-            
-            const progressDiv = document.getElementById('processProgress');
-            progressDiv.classList.remove('hidden');
+            document.getElementById('processProgress').classList.remove('hidden');
 
             try {
-                updateProgress(20, 'Upload PDF...');
-                await uploadPDF();
+                // Se non abbiamo ancora un ID del PDF, lo carichiamo ora
+                if (!state.pdfResourceId) {
+                    updateProgress(20, 'Upload PDF...');
+                    await uploadPDF();
+                }
 
                 updateProgress(50, 'Preparazione dati...');
-                const formData = await createFormData();
+                const formData = createFormData();
 
                 updateProgress(70, 'Compilazione PDF...');
                 await compilePDF(formData);
@@ -381,80 +341,56 @@
                 log(`❌ Errore: ${error.message}`, 'error');
                 btn.disabled = false;
                 btn.textContent = '🚀 Compila PDF XFA';
-                progressDiv.classList.add('hidden');
+                document.getElementById('processProgress').classList.add('hidden');
             }
         });
 
         async function uploadPDF() {
             log('Upload PDF...', 'api');
-            
             const formData = new FormData();
             formData.append('file', state.pdfFile);
-
-            // La chiamata ora usa il nostro /api e rimettiamo la chiave negli headers
             const response = await fetch(`${API_BASE}/upload`, {
                 method: 'POST',
                 body: formData
             });
-
             if (!response.ok) {
                 const text = await response.text();
                 throw new Error(`Upload fallito: ${text}`);
             }
-
             const data = await response.json();
             state.pdfResourceId = data.files[0].id;
             log(`✅ PDF uploadato. ID: ${state.pdfResourceId}`, 'success');
         }
 
-        async function createFormData() {
+        function createFormData() {
             log('Preparazione dati per compilazione...', 'info');
-            
-            // Create simple form data mapping
             const formData = {};
-            
-            // Map CSV data to form fields
             state.csvData.forEach((record, index) => {
                 Object.entries(state.fieldMapping).forEach(([csvField, pdfField]) => {
                     const value = record[csvField] || '';
-                    
-                    // Try different field naming patterns
                     formData[`${pdfField}[${index}]`] = value;
-                    formData[`Row${index + 1}.${pdfField}`] = value;
-                    formData[`Table1.Row${index + 1}.${pdfField}`] = value;
                 });
             });
-
             log(`✅ Preparati dati per ${state.csvData.length} record`, 'success');
             return formData;
         }
 
         async function compilePDF(formData) {
             log('Compilazione PDF con form data semplice...', 'api');
-            
-                    const form = new FormData();
-        form.append('id', state.pdfResourceId);
-        
-        // Convertiamo i nostri dati in una stringa JSON
-        const jsonData = JSON.stringify(formData);
-        
-        // La alleghiamo direttamente come stringa, usando il parametro 'data'
-        form.append('data', jsonData);
-
-            // La chiamata ora usa il nostro /api e rimettiamo la chiave negli headers
+            const form = new FormData();
+            form.append('id', state.pdfResourceId);
+            const jsonData = JSON.stringify(formData);
+            form.append('data', jsonData);
             const response = await fetch(`${API_BASE}/filled-pdf`, {
                 method: 'POST',
                 body: form
             });
-
             if (!response.ok) {
                 const text = await response.text();
                 throw new Error(`Compilazione fallita: ${text}`);
             }
-
             const data = await response.json();
             state.compiledPdfUrl = data.outputUrl;
-            
             log('✅ PDF compilato!', 'success');
             showResults();
         }
@@ -462,25 +398,13 @@
         function showResults() {
             const section = document.getElementById('resultsSection');
             const content = document.getElementById('resultsContent');
-            
             let html = '<div class="text-center space-y-4">';
             html += '<p class="text-lg">Il PDF è stato processato!</p>';
             html += '<p class="text-sm text-gray-600">Processati ' + state.csvData.length + ' record</p>';
-            
             if (state.compiledPdfUrl) {
-                const downloadUrl = state.useProxy ? 
-                    `${PROXY_URL}${encodeURIComponent(state.compiledPdfUrl)}` : 
-                    state.compiledPdfUrl;
-                    
-                html += `<a href="${downloadUrl}" target="_blank" class="btn btn-green inline-block">`;
-                html += '📥 Scarica PDF Compilato</a>';
-                
-                html += '<p class="text-xs text-gray-500 mt-2">Se il download non funziona, copia questo URL:<br>';
-                html += `<code class="bg-gray-100 p-1 rounded">${state.compiledPdfUrl}</code></p>`;
+                html += `<a href="${state.compiledPdfUrl}" target="_blank" class="btn btn-green inline-block">📥 Scarica PDF Compilato</a>`;
             }
-            
             html += '</div>';
-            
             content.innerHTML = html;
             section.classList.remove('hidden');
         }
@@ -496,10 +420,66 @@
             log('Log pulito', 'info');
         });
 
+        // NUOVA FUNZIONE DI DEBUG
+        async function getPdfInfo() {
+            // Dobbiamo prima fare l'upload per avere un ID su cui lavorare
+            if (!state.pdfFile) {
+                log('❌ Prima carica un PDF per analizzarlo!', 'error');
+                return;
+            }
+            if (!state.pdfResourceId) {
+                log('🔬 Upload del PDF per l\'analisi in corso...', 'api');
+                try {
+                    await uploadPDF();
+                } catch(e) {
+                    log(`❌ Fallito l'upload per l'analisi: ${e.message}`, 'error');
+                    return;
+                }
+            }
+
+            log('🔬 Richiesta informazioni sul PDF...', 'api');
+
+            const form = new FormData();
+            form.append('id', state.pdfResourceId);
+
+            try {
+                const response = await fetch(`${API_BASE}/pdf-info`, {
+                    method: 'POST',
+                    body: form
+                });
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    throw new Error(`Analisi fallita: ${text}`);
+                }
+
+                const data = await response.json();
+                
+                log('✅ INFORMAZIONI RICEVUTE! Controlla la console del browser per i dettagli completi.', 'success');
+                log('-------------------------------------------', 'success');
+                log('NOMI DEI CAMPI TROVATI (primi 20):', 'success');
+                
+                // Usiamo console.log per mostrare l'oggetto interattivo
+                console.log('Dati completi ricevuti da /pdf-info:', data);
+
+                if (data.formFields && data.formFields.length > 0) {
+                   data.formFields.slice(0, 20).forEach(field => {
+                       log(`- Nome Campo: ${field.name}`, 'info');
+                   });
+                } else {
+                    log('Nessun campo modulo trovato in questo PDF.', 'warn');
+                }
+                log('-------------------------------------------', 'success');
+
+            } catch (error) {
+                log(`❌ Errore durante l'analisi: ${error.message}`, 'error');
+            }
+        }
+        // Fine della nuova funzione di debug
+
         // Initialize
         log('Sistema inizializzato', 'success');
-        log('Versione con Proxy CORS attiva', 'warn');
-        log('Per uso in produzione, usa un server web', 'info');
+        
     </script>
 
 </body>
