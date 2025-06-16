@@ -388,7 +388,7 @@
             return xmlData;
         }
 
-        // ✅ MEGA-BATCH: Compilazione principale
+        // ✅ MEGA-BATCH: Compilazione principale (con connectivity check)
         async function compilePDF_MegaBatch() {
             log('🚀 AVVIO MEGA-BATCH PROCESSING...', 'megabatch');
             
@@ -398,12 +398,29 @@
             log(`📊 MEGA-BATCH TARGET: ${totalRecords} record → 1 chiamata API`, 'megabatch');
             log(`🎯 Strategia: Singolo XML con tutti i record (bypass batch tradizionali)`, 'info');
             
+            // ✅ CONNECTIVITY CHECK: Test rapido connessione API
+            updateProgress(5, 'Test connettività API...', 'Verifica preliminare');
+            try {
+                log('🔍 Test connettività pdfRest API...', 'info');
+                const testResponse = await fetch(`${API_BASE}/pdf-info`, {
+                    method: 'HEAD',
+                    signal: AbortSignal.timeout(5000) // 5s timeout per test
+                });
+                if (!testResponse.ok && testResponse.status !== 405) { // 405 = Method Not Allowed è OK
+                    throw new Error(`API non raggiungibile: ${testResponse.status}`);
+                }
+                log('✅ Test connettività OK', 'success');
+            } catch (testError) {
+                log(`⚠️ Test connettività fallito: ${testError.message}`, 'warn');
+                log('💡 Procedo comunque con mega-batch (il test può essere impreciso)', 'info');
+            }
+            
             try {
                 // STEP 1: Generazione XML
-                updateProgress(10, 'Avvio generazione XML mega-batch...', 'Preparazione struttura dati');
+                updateProgress(15, 'Avvio generazione XML mega-batch...', 'Preparazione struttura dati');
                 const xmlData = generateMegaBatchXML(state.csvData);
                 
-                updateProgress(40, 'XML generato, preparazione chiamata API...', `XML pronto: ${Math.round(xmlData.length / 1024)}KB`);
+                updateProgress(45, 'XML generato, preparazione chiamata API...', `XML pronto: ${Math.round(xmlData.length / 1024)}KB`);
                 
                 // STEP 2: Preparazione FormData
                 const form = new FormData();
@@ -415,10 +432,10 @@
                 form.append('data_file', dataBlob, filename);
                 form.append('output', `documento_megabatch_${totalRecords}rec_${timestamp}`);
                 
-                updateProgress(50, 'Invio mega-batch a pdfRest API...', 'Timeout esteso: 45s');
+                updateProgress(55, 'Invio mega-batch a pdfRest API...', 'Timeout esteso: 50s');
                 
                 // STEP 3: ✅ CHIAMATA MEGA-BATCH con timeout esteso
-                log('🚀 Invio MEGA-BATCH (timeout 45s, keepalive attivo)...', 'api');
+                log('🚀 Invio MEGA-BATCH (timeout 50s, keepalive attivo)...', 'api');
                 
                 // ✅ Keepalive per mantenere viva la connessione
                 const keepaliveInterval = setInterval(() => {
@@ -429,7 +446,7 @@
                     method: 'POST',
                     body: form,
                     // ✅ Timeout browser esteso (deve essere < timeout Netlify)
-                    signal: AbortSignal.timeout(43000) // 43s (meno di Netlify 45s)
+                    signal: AbortSignal.timeout(48000) // 48s (meno di Netlify 50s)
                 });
                 
                 clearInterval(keepaliveInterval);
@@ -454,31 +471,108 @@
             } catch (error) {
                 log(`❌ MEGA-BATCH FAILED: ${error.message}`, 'error');
                 
-                if (error.name === 'TimeoutError' || error.message.includes('timeout')) {
-                    log('⏰ TIMEOUT rilevato - Attivazione modalità fallback disponibile', 'warn');
-                    showFallbackOption();
+                // ✅ AUTO-FALLBACK: Rileva errori proxy e attiva fallback automatico
+                const shouldTriggerFallback = 
+                    error.name === 'TimeoutError' || 
+                    error.message.includes('timeout') ||
+                    error.message.includes('502') ||
+                    error.message.includes('Bad Gateway') ||
+                    error.message.includes('fetch failed') ||
+                    error.message.includes('proxy_error');
+                
+                if (shouldTriggerFallback) {
+                    log('🔄 ERRORE PROXY RILEVATO - Attivazione fallback automatico...', 'warn');
+                    log('💡 Causa: Limite Netlify Functions superato', 'info');
+                    
+                    // ✅ MOSTRA AUTO-FALLBACK UI
+                    const autoFallbackDiv = document.createElement('div');
+                    autoFallbackDiv.id = 'autoFallbackNotice';
+                    autoFallbackDiv.className = 'bg-orange-100 border border-orange-300 p-4 rounded-lg mt-4';
+                    autoFallbackDiv.innerHTML = `
+                        <h3 class="font-bold text-orange-700 mb-2">🔄 Auto-Fallback Attivo</h3>
+                        <p class="text-sm text-orange-800">
+                            Netlify timeout rilevato. Attivazione fallback automatico in <span id="fallbackCountdown">3</span>s...
+                        </p>
+                        <button id="cancelAutoFallback" class="btn btn-red text-sm mt-2">❌ Annulla</button>
+                    `;
+                    document.getElementById('processProgress').after(autoFallbackDiv);
+                    
+                    // Countdown per auto-fallback
+                    let countdown = 3;
+                    const countdownInterval = setInterval(() => {
+                        countdown--;
+                        const countdownEl = document.getElementById('fallbackCountdown');
+                        if (countdownEl) countdownEl.textContent = countdown;
+                        
+                        if (countdown <= 0) {
+                            clearInterval(countdownInterval);
+                            if (document.getElementById('autoFallbackNotice')) {
+                                executeAutoFallback();
+                            }
+                        }
+                    }, 1000);
+                    
+                    // Pulsante cancel
+                    document.getElementById('cancelAutoFallback').addEventListener('click', () => {
+                        clearInterval(countdownInterval);
+                        document.getElementById('autoFallbackNotice').remove();
+                        log('❌ Auto-fallback annullato dall\'utente', 'info');
+                        showFallbackOption(); // Mostra opzione manuale
+                    });
+                    
+                    async function executeAutoFallback() {
+                        document.getElementById('autoFallbackNotice').remove();
+                        try {
+                            log('🚀 AUTO-FALLBACK: Bypass automatico in corso...', 'warn');
+                            await executeFallbackMode(true); // ✅ Indica auto-trigger
+                        } catch (fallbackError) {
+                            log(`❌ Anche auto-fallback fallito: ${fallbackError.message}`, 'error');
+                            showFallbackOption(); // Mostra opzione manuale
+                        }
+                    }
                 } else {
                     throw error;
                 }
             }
         }
 
-        // ✅ FALLBACK: Modalità chiamata diretta
-        async function executeFallbackMode() {
+        // ✅ FALLBACK: Modalità chiamata diretta (migliorata per auto-trigger)
+        async function executeFallbackMode(autoTriggered = false) {
             log('🔄 ATTIVAZIONE MODALITÀ FALLBACK...', 'warn');
             log('⚠️ ATTENZIONE: Chiamata diretta al browser (API key temporaneamente esposta)', 'warn');
             
-            const userConfirm = confirm(
-                '🚨 MODALITÀ FALLBACK\n\n' +
-                'Il mega-batch ha superato i limiti di Netlify Functions.\n\n' +
-                '✅ SOLUZIONE: Chiamata diretta dal browser\n' +
-                '⚠️ AVVISO: La tua API key sarà temporaneamente visibile\n' +
-                '🎯 RISULTATO: Elaborazione di tutti i record senza limiti\n\n' +
-                'Vuoi procedere?'
-            );
+            let userConfirm;
+            
+            if (autoTriggered) {
+                // Se attivato automaticamente, mostra dialog più specifico
+                userConfirm = confirm(
+                    '🚨 AUTO-FALLBACK RILEVATO\n\n' +
+                    '❌ PROBLEMA: Netlify Functions ha raggiunto il timeout\n' +
+                    '✅ SOLUZIONE: Chiamata diretta dal browser\n\n' +
+                    '📊 VANTAGGI:\n' +
+                    '• Nessun limite di timeout\n' +
+                    '• Elaborazione di tutti i ' + state.csvData.length + ' record\n' +
+                    '• Stesso risultato finale\n\n' +
+                    '⚠️ TEMPORANEO: API key visibile solo durante elaborazione\n\n' +
+                    'Continua con auto-fallback?'
+                );
+            } else {
+                // Prompt originale per trigger manuale
+                userConfirm = confirm(
+                    '🚨 MODALITÀ FALLBACK\n\n' +
+                    'Il mega-batch ha superato i limiti di Netlify Functions.\n\n' +
+                    '✅ SOLUZIONE: Chiamata diretta dal browser\n' +
+                    '⚠️ AVVISO: La tua API key sarà temporaneamente visibile\n' +
+                    '🎯 RISULTATO: Elaborazione di tutti i record senza limiti\n\n' +
+                    'Vuoi procedere?'
+                );
+            }
             
             if (!userConfirm) {
                 log('❌ Modalità fallback annullata dall\'utente', 'info');
+                if (autoTriggered) {
+                    showFallbackOption(); // Mostra opzione manuale se auto-fallback rifiutato
+                }
                 return;
             }
             
@@ -490,10 +584,10 @@
                 const totalRecords = state.csvData.length;
                 state.processingStartTime = Date.now();
                 
-                updateProgress(20, 'Fallback: Generazione XML...', 'Modalità diretta attiva');
+                updateProgress(25, 'Fallback: Generazione XML...', 'Modalità diretta attiva');
                 const xmlData = generateMegaBatchXML(state.csvData);
                 
-                updateProgress(50, 'Fallback: Chiamata diretta a pdfRest...', 'Bypass Netlify timeout');
+                updateProgress(55, 'Fallback: Chiamata diretta a pdfRest...', 'Bypass Netlify timeout');
                 
                 const form = new FormData();
                 form.append('id', state.pdfResourceId);
@@ -614,7 +708,7 @@
         document.getElementById('debugBtn').addEventListener('click', getPdfInfo);
         document.getElementById('exportBtn').addEventListener('click', exportFormStructure);
         document.getElementById('convertBtn').addEventListener('click', convertXfaToAcroforms);
-        document.getElementById('fallbackBtn').addEventListener('click', executeFallbackMode); // ✅ NUOVO
+        document.getElementById('fallbackBtn').addEventListener('click', () => executeFallbackMode(false)); // ✅ Trigger manuale
 
         document.getElementById('selectCSVBtn').addEventListener('click', () => {
             document.getElementById('csvFileInput').click();
@@ -751,11 +845,11 @@
             try {
                 // Upload PDF se necessario
                 if (!state.pdfResourceId) {
-                    updateProgress(5, 'Upload PDF...', 'Preparazione risorsa');
+                    updateProgress(10, 'Upload PDF...', 'Preparazione risorsa');
                     await uploadPDF();
                 }
                 
-                updateProgress(15, 'Avvio mega-batch...', 'Modalità mega-batch attiva');
+                updateProgress(20, 'Avvio mega-batch...', 'Modalità mega-batch attiva');
                 await compilePDF_MegaBatch();
                 
                 btn.textContent = '✅ Mega-Batch completato';
