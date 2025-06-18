@@ -198,7 +198,7 @@
             <!-- Actions -->
             <div class="text-center space-x-4">
                 <button id="compileBtn" class="btn btn-orange text-lg px-8 py-4" disabled>
-                    🚀 COMPILA PDF UNIVERSALE
+                    🚀 COMPILA PDF SELETTIVO
                 </button>
                 <button id="resetBtn" class="btn btn-red">🔄 Ricomincia</button>
             </div>
@@ -662,8 +662,19 @@
             
             let html = `
                 <div class="bg-green-50 border border-green-200 p-4 rounded-lg mb-6">
-                    <h3 class="font-bold text-green-700 mb-2">📊 Caricamento CSV</h3>
-                    <p class="text-green-800">Carica un file CSV per ogni tabella identificata. I CSV devono avere intestazioni che corrispondono ai campi della tabella.</p>
+                    <h3 class="font-bold text-green-700 mb-2">📊 Caricamento CSV (Opzionale per Tabella)</h3>
+                    <p class="text-green-800">
+                        <strong>✨ Novità:</strong> Non è necessario caricare un CSV per ogni tabella! 
+                        Carica solo i CSV per le tabelle che vuoi compilare nel PDF finale.
+                    </p>
+                    <div class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded">
+                        <p class="text-sm text-blue-800">
+                            <strong>💡 Come funziona:</strong><br>
+                            • <strong>Almeno 1 CSV</strong> richiesto per procedere<br>
+                            • <strong>CSV mancanti</strong> = tabelle ignorate nel risultato<br>
+                            • <strong>Più CSV</strong> = compilazione multi-tabella completa
+                        </p>
+                    </div>
                 </div>
                 
                 <div class="grid gap-6">
@@ -673,17 +684,24 @@
                 html += `
                     <div class="border border-gray-200 rounded-lg p-6">
                         <div class="flex justify-between items-center mb-4">
-                            <h4 class="text-lg font-bold">${table.name}</h4>
-                            <span id="csvStatus_${table.id}" class="text-sm status-pending">⏳ In attesa CSV</span>
+                            <div>
+                                <h4 class="text-lg font-bold">${table.name}</h4>
+                                <p class="text-sm text-gray-500">
+                                    <span class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold">OPZIONALE</span>
+                                    • ${table.fields.length} campi • Capacità: ${table.estimatedRecords}
+                                </p>
+                            </div>
+                            <span id="csvStatus_${table.id}" class="text-sm status-pending">⚪ Opzionale</span>
                         </div>
                         
                         <div class="border-2 border-dashed border-green-300 rounded-lg p-6 text-center">
                             <div class="text-3xl mb-2">📊</div>
-                            <p class="text-sm text-gray-600 mb-3">CSV per <strong>${table.name}</strong></p>
+                            <p class="text-sm text-gray-600 mb-1">CSV per <strong>${table.name}</strong></p>
+                            <p class="text-xs text-gray-500 mb-3">⚪ Carica solo se vuoi compilare questa tabella</p>
                             <input type="file" id="csvInput_${table.id}" accept=".csv" class="hidden">
                             <button onclick="document.getElementById('csvInput_${table.id}').click()" 
                                     class="btn btn-green">
-                                📂 Carica CSV
+                                📂 Carica CSV (Opzionale)
                             </button>
                         </div>
                         
@@ -735,8 +753,8 @@
                         // Show preview
                         showCSVPreview(tableId, cleanData);
                         
-                        // Check if all CSVs are loaded
-                        checkAllCSVsLoaded();
+                        // Check if at least one CSV is loaded
+                        checkAtLeastOneCSVLoaded();
                     },
                     error: (error) => {
                         log(`❌ Errore parsing CSV ${tableId}: ${error.message}`, 'error');
@@ -791,14 +809,21 @@
             preview.classList.remove('hidden');
         }
 
-        function checkAllCSVsLoaded() {
-            const allLoaded = state.discoveredTables.every(table => 
+        function checkAtLeastOneCSVLoaded() {
+            const loadedTables = state.discoveredTables.filter(table => 
                 state.csvData[table.id] && state.csvData[table.id].length > 0
             );
             
-            if (allLoaded) {
+            const hasAtLeastOne = loadedTables.length > 0;
+            
+            if (hasAtLeastOne) {
                 document.getElementById('proceedToMappingBtn').disabled = false;
-                log(`✅ Tutti i CSV caricati (${state.discoveredTables.length} tabelle)`, 'success');
+                log(`✅ CSV caricati per ${loadedTables.length}/${state.discoveredTables.length} tabelle`, 'success');
+                log(`📊 Tabelle da processare: ${loadedTables.map(t => t.name).join(', ')}`, 'info');
+                log(`⚪ Tabelle ignorate: ${state.discoveredTables.filter(t => !state.csvData[t.id]).length}`, 'info');
+            } else {
+                document.getElementById('proceedToMappingBtn').disabled = true;
+                log(`⚠️ Carica almeno un CSV per procedere`, 'warn');
             }
         }
 
@@ -814,24 +839,53 @@
         function setupMappingInterface() {
             const container = document.getElementById('mappingTables');
             
+            // ✅ NOVITÀ: Filtra solo tabelle con CSV caricati
+            const tablesWithCSV = state.discoveredTables.filter(table => 
+                state.csvData[table.id] && state.csvData[table.id].length > 0
+            );
+            
             let html = `
                 <div class="bg-yellow-50 border border-yellow-200 p-4 rounded-lg mb-6">
-                    <h3 class="font-bold text-yellow-700 mb-2">🔗 Mapping Automatico</h3>
-                    <p class="text-yellow-800">Il sistema ha proposto automaticamente abbinamenti basati sui nomi dei campi. 
-                    Puoi modificare o confermare ogni abbinamento.</p>
+                    <h3 class="font-bold text-yellow-700 mb-2">🔗 Mapping Intelligente</h3>
+                    <p class="text-yellow-800">
+                        Il sistema propone automaticamente abbinamenti per le <strong>${tablesWithCSV.length}</strong> 
+                        tabelle con CSV caricati. Le tabelle senza CSV saranno ignorate nella compilazione.
+                    </p>
                 </div>
             `;
             
-            state.discoveredTables.forEach(table => {
-                if (!state.csvData[table.id]) return;
-                
+            if (tablesWithCSV.length === 0) {
+                html += `
+                    <div class="bg-red-50 border border-red-200 p-6 rounded-lg text-center">
+                        <div class="text-4xl mb-4">⚠️</div>
+                        <h3 class="text-lg font-bold text-red-700 mb-2">Nessun CSV Caricato</h3>
+                        <p class="text-red-800">Torna indietro e carica almeno un CSV per procedere.</p>
+                    </div>
+                `;
+                container.innerHTML = html;
+                return;
+            }
+            
+            tablesWithCSV.forEach(table => {
                 const csvHeaders = Object.keys(state.csvData[table.id][0] || {});
                 const autoMapping = generateAutoMapping(csvHeaders, table.fields);
                 state.mappings[table.id] = autoMapping;
                 
+                const recordCount = state.csvData[table.id].length;
+                
                 html += `
                     <div class="border border-gray-200 rounded-lg p-6 mb-6">
-                        <h4 class="text-lg font-bold mb-4">${table.name}</h4>
+                        <div class="flex justify-between items-center mb-4">
+                            <div>
+                                <h4 class="text-lg font-bold">${table.name}</h4>
+                                <p class="text-sm text-green-600">
+                                    ✅ <strong>${recordCount}</strong> record caricati • Mapping attivo
+                                </p>
+                            </div>
+                            <span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-bold">
+                                ATTIVA
+                            </span>
+                        </div>
                         <div class="grid gap-3" id="mapping_${table.id}">
                 `;
                 
@@ -868,6 +922,27 @@
                 
                 html += '</div></div>';
             });
+            
+            // ✅ RIEPILOGO: Mostra tabelle ignorate
+            const ignoredTables = state.discoveredTables.filter(table => 
+                !state.csvData[table.id] || state.csvData[table.id].length === 0
+            );
+            
+            if (ignoredTables.length > 0) {
+                html += `
+                    <div class="bg-gray-50 border border-gray-200 p-4 rounded-lg">
+                        <h4 class="font-bold text-gray-700 mb-2">⚪ Tabelle Ignorate (${ignoredTables.length})</h4>
+                        <p class="text-sm text-gray-600 mb-2">
+                            Queste tabelle non saranno incluse nella compilazione finale:
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            ${ignoredTables.map(table => 
+                                `<span class="bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs">${table.name}</span>`
+                            ).join('')}
+                        </div>
+                    </div>
+                `;
+            }
             
             container.innerHTML = html;
             
@@ -969,9 +1044,12 @@
             let totalMapped = 0;
             let totalFields = 0;
             
-            state.discoveredTables.forEach(table => {
-                if (!state.csvData[table.id]) return;
-                
+            // ✅ NOVITÀ: Controlla solo tabelle con CSV caricati
+            const tablesWithCSV = state.discoveredTables.filter(table => 
+                state.csvData[table.id] && state.csvData[table.id].length > 0
+            );
+            
+            tablesWithCSV.forEach(table => {
                 const csvHeaders = Object.keys(state.csvData[table.id][0] || {});
                 const mapping = state.mappings[table.id] || {};
                 
@@ -983,14 +1061,18 @@
                 });
             });
             
-            if (totalMapped < totalFields * 0.5) { // Almeno 50% mappato
+            if (totalFields === 0) {
+                allComplete = false;
+            } else if (totalMapped < totalFields * 0.3) { // Soglia ridotta al 30%
                 allComplete = false;
             }
             
             document.getElementById('proceedToCompileBtn').disabled = !allComplete;
             
-            if (allComplete) {
-                log(`✅ Mapping completato: ${totalMapped}/${totalFields} campi mappati`, 'success');
+            if (allComplete && totalFields > 0) {
+                log(`✅ Mapping completato: ${totalMapped}/${totalFields} campi mappati (${tablesWithCSV.length} tabelle attive)`, 'success');
+            } else if (totalFields > 0) {
+                log(`⚠️ Mapping incompleto: ${totalMapped}/${totalFields} campi mappati (min 30% richiesto)`, 'warn');
             }
         }
 
@@ -1006,46 +1088,87 @@
         function setupCompilationSummary() {
             const container = document.getElementById('compilationSummary');
             
-            let totalRecords = 0;
-            let html = `
-                <h3 class="font-bold mb-4">📊 Riepilogo Compilazione</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-            `;
+            // ✅ NOVITÀ: Solo tabelle con CSV caricati
+            const activeTablesRecords = {};
+            const ignoredTables = [];
             
             state.discoveredTables.forEach(table => {
-                const records = state.csvData[table.id]?.length || 0;
-                const mappedFields = Object.values(state.mappings[table.id] || {}).filter(v => v).length;
-                const totalFields = Object.keys(state.csvData[table.id]?.[0] || {}).length;
-                
-                totalRecords += records;
-                
-                html += `
-                    <div class="bg-white border border-gray-200 rounded-lg p-4">
-                        <h4 class="font-bold text-gray-800">${table.name}</h4>
-                        <div class="text-sm text-gray-600 space-y-1">
-                            <div>📊 Record: <strong>${records}</strong></div>
-                            <div>🔗 Campi mappati: <strong>${mappedFields}/${totalFields}</strong></div>
-                            <div>📈 Completezza: <strong>${Math.round((mappedFields/totalFields)*100)}%</strong></div>
-                        </div>
-                    </div>
-                `;
+                if (state.csvData[table.id] && state.csvData[table.id].length > 0) {
+                    activeTablesRecords[table.id] = {
+                        name: table.name,
+                        records: state.csvData[table.id].length,
+                        mappedFields: Object.values(state.mappings[table.id] || {}).filter(v => v).length,
+                        totalFields: Object.keys(state.csvData[table.id][0] || {}).length
+                    };
+                } else {
+                    ignoredTables.push(table);
+                }
             });
             
-            html += `
+            const totalRecords = Object.values(activeTablesRecords).reduce((sum, table) => sum + table.records, 0);
+            const activeTableCount = Object.keys(activeTablesRecords).length;
+            
+            let html = `
+                <h3 class="font-bold mb-4">📊 Riepilogo Compilazione Intelligente</h3>
+                
+                <div class="bg-blue-50 border border-blue-200 p-4 rounded-lg mb-4">
+                    <h4 class="font-bold text-blue-700 mb-2">✨ Compilazione Selettiva Attiva</h4>
+                    <p class="text-sm text-blue-800">
+                        Il sistema compilerà <strong>${activeTableCount}</strong> tabelle su <strong>${state.discoveredTables.length}</strong> 
+                        totali rilevate. Le tabelle senza CSV saranno automaticamente ignorate.
+                    </p>
                 </div>
+            `;
+            
+            if (activeTableCount > 0) {
+                html += '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">';
+                
+                Object.entries(activeTablesRecords).forEach(([tableId, table]) => {
+                    html += `
+                        <div class="bg-white border border-green-200 rounded-lg p-4 border-l-4 border-l-green-500">
+                            <h4 class="font-bold text-gray-800">${table.name}</h4>
+                            <div class="text-sm text-gray-600 space-y-1">
+                                <div>📊 Record: <strong class="text-green-600">${table.records}</strong></div>
+                                <div>🔗 Campi mappati: <strong>${table.mappedFields}/${table.totalFields}</strong></div>
+                                <div>📈 Completezza: <strong>${Math.round((table.mappedFields/table.totalFields)*100)}%</strong></div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+            }
+            
+            if (ignoredTables.length > 0) {
+                html += `
+                    <div class="bg-gray-50 border border-gray-200 p-4 rounded-lg mb-4">
+                        <h4 class="font-bold text-gray-700 mb-2">⚪ Tabelle Ignorate (${ignoredTables.length})</h4>
+                        <div class="flex flex-wrap gap-2">
+                            ${ignoredTables.map(table => 
+                                `<span class="bg-gray-200 text-gray-600 px-2 py-1 rounded text-xs">${table.name}</span>`
+                            ).join('')}
+                        </div>
+                        <p class="text-xs text-gray-600 mt-2">
+                            💡 Per includerle, torna indietro e carica i CSV corrispondenti
+                        </p>
+                    </div>
+                `;
+            }
+            
+            html += `
                 <div class="bg-green-50 border border-green-200 p-4 rounded-lg">
                     <div class="flex justify-between items-center">
                         <div>
                             <h4 class="font-bold text-green-700">Totale Elaborazione</h4>
                             <p class="text-green-600">
                                 <strong>${totalRecords}</strong> record totali • 
-                                <strong>${state.discoveredTables.length}</strong> tabelle • 
-                                Modalità <strong>Mega-Batch Multi-Tabella</strong>
+                                <strong>${activeTableCount}</strong> tabelle attive • 
+                                Modalità <strong>Mega-Batch Selettivo</strong>
                             </p>
                         </div>
                         <div class="text-right">
                             <div class="text-2xl font-bold text-green-600">${totalRecords}</div>
-                            <div class="text-sm text-green-500">Record</div>
+                            <div class="text-sm text-green-500">Record Attivi</div>
                         </div>
                     </div>
                 </div>
@@ -1053,8 +1176,8 @@
             
             container.innerHTML = html;
             
-            // Enable compile button
-            document.getElementById('compileBtn').disabled = false;
+            // Enable compile button only if there are active tables
+            document.getElementById('compileBtn').disabled = activeTableCount === 0;
         }
 
         // =============================================
@@ -1071,13 +1194,13 @@
             try {
                 await executeMultiTableMegaBatch();
                 
-                btn.textContent = '✅ Compilazione completata';
+                btn.textContent = '✅ Compilazione selettiva completata';
                 btn.style.background = '#10b981';
                 
             } catch (error) {
                 log(`❌ Errore compilazione: ${error.message}`, 'error');
                 btn.disabled = false;
-                btn.textContent = '🚀 COMPILA PDF UNIVERSALE';
+                btn.textContent = '🚀 COMPILA PDF SELETTIVO';
                 btn.style.background = '#f97316';
                 document.getElementById('processProgress').classList.add('hidden');
             }
@@ -1134,7 +1257,7 @@
         }
 
         function generateMultiTableXML() {
-            log('🔧 Generazione XML multi-tabella...', 'info');
+            log('🔧 Generazione XML multi-tabella intelligente...', 'info');
             
             let xmlData = '<?xml version="1.0" encoding="UTF-8"?>\n';
             
@@ -1150,44 +1273,57 @@
                 xmlData += '<root>\n';
             }
             
+            // ✅ NOVITÀ: Processa solo tabelle con CSV E mapping
+            const activeTables = [];
+            let totalProcessedRecords = 0;
+            
             state.discoveredTables.forEach(table => {
                 const csvData = state.csvData[table.id];
                 const mapping = state.mappings[table.id];
                 
-                if (!csvData || !mapping) return;
-                
-                log(`📊 Processando tabella: ${table.name} (${csvData.length} record)`, 'info');
-                
-                csvData.forEach((record, index) => {
-                    xmlData += `  <${table.id}>\n`;
+                // Verifica che abbia sia CSV che mapping valido
+                if (csvData && csvData.length > 0 && mapping && Object.values(mapping).some(v => v)) {
+                    activeTables.push(table);
                     
-                    // Mappa i campi CSV ai campi PDF
-                    Object.entries(mapping).forEach(([csvField, pdfField]) => {
-                        if (pdfField && record[csvField] !== undefined) {
-                            const value = record[csvField] || '';
-                            const escapedValue = value.replace(/[&<>"']/g, (char) => {
-                                const escapeMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' };
-                                return escapeMap[char];
-                            });
-                            xmlData += `    <${pdfField}>${escapedValue}</${pdfField}>\n`;
+                    log(`📊 Processando tabella: ${table.name} (${csvData.length} record)`, 'info');
+                    
+                    csvData.forEach((record, index) => {
+                        xmlData += `  <${table.id}>\n`;
+                        
+                        // Mappa i campi CSV ai campi PDF
+                        Object.entries(mapping).forEach(([csvField, pdfField]) => {
+                            if (pdfField && record[csvField] !== undefined) {
+                                const value = record[csvField] || '';
+                                const escapedValue = value.replace(/[&<>"']/g, (char) => {
+                                    const escapeMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' };
+                                    return escapeMap[char];
+                                });
+                                xmlData += `    <${pdfField}>${escapedValue}</${pdfField}>\n`;
+                            }
+                        });
+                        
+                        xmlData += `  </${table.id}>\n`;
+                        totalProcessedRecords++;
+                        
+                        // Progress update ogni 25 record
+                        if (index % 25 === 0 && index > 0) {
+                            updateProgress(20 + (index / csvData.length) * 15, 
+                                         `Processando ${table.name}: ${index}/${csvData.length}`, 
+                                         `Tabella ${activeTables.indexOf(table) + 1}/${activeTables.length}`);
                         }
                     });
                     
-                    xmlData += `  </${table.id}>\n`;
-                    
-                    // Progress update ogni 50 record
-                    if (index % 50 === 0) {
-                        updateProgress(20 + (index / csvData.length) * 15, 
-                                     `Processando ${table.name}: ${index}/${csvData.length}`, 
-                                     `Tabella ${state.discoveredTables.indexOf(table) + 1}/${state.discoveredTables.length}`);
-                    }
-                });
+                    log(`✅ Tabella ${table.name} completata: ${csvData.length} record`, 'success');
+                } else {
+                    log(`⚪ Tabella ${table.name} ignorata (no CSV o mapping)`, 'info');
+                }
             });
             
             xmlData += '</root>';
             
-            const totalRecords = Object.values(state.csvData).reduce((sum, data) => sum + data.length, 0);
-            log(`✅ XML multi-tabella generato: ${totalRecords} record totali, ${Math.round(xmlData.length / 1024)}KB`, 'success');
+            log(`✅ XML selettivo generato: ${totalProcessedRecords} record da ${activeTables.length} tabelle attive`, 'success');
+            log(`📊 Tabelle processate: ${activeTables.map(t => t.name).join(', ')}`, 'info');
+            log(`📏 Dimensione finale: ${Math.round(xmlData.length / 1024)}KB`, 'info');
             
             return xmlData;
         }
@@ -1228,20 +1364,26 @@
             const section = document.getElementById('resultsSection');
             const content = document.getElementById('resultsContent');
             
-            const totalRecords = Object.values(state.csvData).reduce((sum, data) => sum + data.length, 0);
+            // ✅ NOVITÀ: Calcola solo tabelle attive
+            const activeTables = state.discoveredTables.filter(table => 
+                state.csvData[table.id] && state.csvData[table.id].length > 0 && 
+                state.mappings[table.id] && Object.values(state.mappings[table.id]).some(v => v)
+            );
+            const totalRecords = activeTables.reduce((sum, table) => sum + state.csvData[table.id].length, 0);
             const elapsedTime = Math.round((Date.now() - state.processingStartTime) / 1000);
             
             let html = '<div class="text-center space-y-6">';
-            html += '<h3 class="text-2xl font-bold text-green-600">🎉 PDF Multi-Tabella Compilato!</h3>';
+            html += '<h3 class="text-2xl font-bold text-green-600">🎉 PDF Selettivo Compilato!</h3>';
+            html += '<p class="text-green-700">Compilazione intelligente completata con successo</p>';
             
             html += '<div class="grid grid-cols-1 md:grid-cols-4 gap-4 my-6">';
             html += `<div class="bg-green-50 p-4 rounded-lg">
-                        <div class="text-2xl font-bold text-green-600">${state.discoveredTables.length}</div>
+                        <div class="text-2xl font-bold text-green-600">${activeTables.length}</div>
                         <div class="text-sm text-gray-600">Tabelle processate</div>
                      </div>`;
             html += `<div class="bg-blue-50 p-4 rounded-lg">
                         <div class="text-2xl font-bold text-blue-600">${totalRecords}</div>
-                        <div class="text-sm text-gray-600">Record totali</div>
+                        <div class="text-sm text-gray-600">Record compilati</div>
                      </div>`;
             html += `<div class="bg-purple-50 p-4 rounded-lg">
                         <div class="text-2xl font-bold text-purple-600">${elapsedTime}s</div>
@@ -1253,10 +1395,39 @@
                      </div>`;
             html += '</div>';
             
+            // ✅ DETTAGLI COMPILAZIONE
+            if (activeTables.length > 0) {
+                html += '<div class="bg-green-50 border border-green-200 p-4 rounded-lg mb-4">';
+                html += '<h4 class="font-bold text-green-700 mb-2">✅ Tabelle Compilate</h4>';
+                html += '<div class="grid grid-cols-1 md:grid-cols-3 gap-2">';
+                activeTables.forEach(table => {
+                    const records = state.csvData[table.id].length;
+                    html += `<div class="bg-white p-2 rounded text-sm">
+                                <strong>${table.name}</strong><br>
+                                <span class="text-green-600">${records} record</span>
+                             </div>`;
+                });
+                html += '</div></div>';
+            }
+            
+            // ✅ TABELLE IGNORATE
+            const ignoredTables = state.discoveredTables.filter(table => !activeTables.includes(table));
+            if (ignoredTables.length > 0) {
+                html += '<div class="bg-gray-50 border border-gray-200 p-4 rounded-lg mb-4">';
+                html += `<h4 class="font-bold text-gray-700 mb-2">⚪ Tabelle Ignorate (${ignoredTables.length})</h4>`;
+                html += '<div class="flex flex-wrap gap-2">';
+                ignoredTables.forEach(table => {
+                    html += `<span class="bg-gray-200 text-gray-600 px-2 py-1 rounded text-xs">${table.name}</span>`;
+                });
+                html += '</div>';
+                html += '<p class="text-xs text-gray-600 mt-2">Non processate per mancanza di CSV o mapping</p>';
+                html += '</div>';
+            }
+            
             if (state.compiledPdfUrl) {
                 html += `<a href="${state.compiledPdfUrl}" target="_blank" 
                            class="btn btn-green inline-block text-lg px-8 py-4">
-                           📥 SCARICA PDF UNIVERSALE
+                           📥 SCARICA PDF SELETTIVO
                          </a>`;
             }
             
@@ -1300,7 +1471,7 @@
 
         // Initialize
         log('🔍 PDF XFA Compiler Universale inizializzato', 'success');
-        log('✨ Funzionalità: Auto-Discovery • Multi-Tabella • Mapping Dinamico', 'info');
+        log('✨ Funzionalità: Auto-Discovery • Multi-Tabella • Mapping Dinamico • CSV Opzionali', 'info');
         state.apiKey = document.getElementById('apiKeyInput').value.trim();
     </script>
 
