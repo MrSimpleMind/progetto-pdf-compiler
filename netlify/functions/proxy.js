@@ -1,13 +1,10 @@
 // File: netlify/functions/proxy.js
-// ✅ IMPROVED VERSION: Better timeout and error handling
+// ✅ MEGA-BATCH VERSION: Supporto timeout esteso e gestione file grandi
 
 const { Buffer } = require('buffer');
 
 exports.handler = async function (event, context) {
-  // Aumenta timeout massimo del context Netlify
-  context.callbackWaitsForEmptyEventLoop = false;
-  
-  // CORS preflight
+  // ✅ CORS preflight con headers estesi per mega-batch
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 204,
@@ -15,156 +12,129 @@ exports.handler = async function (event, context) {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
         "Access-Control-Allow-Methods": "POST, GET, OPTIONS, PUT, DELETE",
-        "Access-Control-Max-Age": "86400",
+        "Access-Control-Max-Age": "86400", // Cache preflight per 24h
       },
       body: ''
     };
   }
 
+  // Costruzione URL target
   const path = event.path.replace('/api', '');
   const targetUrl = `https://api.pdfrest.com${path}`;
+
+  // API Key sicura dall'ambiente
   const apiKey = process.env.PDFREST_API_KEY;
 
   if (!apiKey) {
-    console.error('[PROXY] API key mancante');
+    console.error('[PROXY] API key mancante nell\'ambiente Netlify');
     return { 
       statusCode: 500, 
-      body: JSON.stringify({ error: 'API key mancante' }),
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+      body: JSON.stringify({ error: 'La chiave API non è configurata sul server.' }),
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
+      }
     };
   }
 
-  // ✅ DETECTION: Rileva tipo operazione
+  // ✅ MEGA-BATCH: Rilevamento operazioni lunghe
   const isLongOperation = path.includes('pdf-with-imported-form-data');
   const isUpload = path.includes('upload');
-  
-  // ✅ TIMEOUT SCALING: Timeout progressivi basati su operazione
-  let timeoutMs;
-  if (isLongOperation) {
-    // Per mega-batch, proviamo timeout ancora più lungo
-    timeoutMs = 50000; // 50s invece di 45s
-  } else if (isUpload) {
-    timeoutMs = 25000; // 25s per upload
-  } else {
-    timeoutMs = 15000; // 15s standard
-  }
+  const isPdfInfo = path.includes('pdf-info');
 
   try {
+    // ✅ DECODIFICA BASE64: Gestione corretta file binari
     const requestBody = event.isBase64Encoded ? Buffer.from(event.body, 'base64') : event.body;
     
-    // ✅ LOGGING: Enhanced per debug
-    console.log(`[PROXY] ${event.httpMethod} ${path}`);
-    console.log(`[PROXY] Timeout: ${timeoutMs}ms`);
-    console.log(`[PROXY] Body size: ${requestBody ? requestBody.length : 0} bytes`);
-    
+    // ✅ LOGGING: Debug per mega-batch
     if (isLongOperation) {
-      console.log('[MEGA-BATCH] Operazione lunga rilevata');
-      console.log('[MEGA-BATCH] Timeout esteso attivo');
+      console.log('[MEGA-BATCH] Operazione lunga rilevata:', path);
+      console.log('[MEGA-BATCH] Content-Length:', event.headers['content-length'] || 'unknown');
+      console.log('[MEGA-BATCH] Timeout configurato: 50s');
     }
 
-    // ✅ ABORT CONTROLLER: Con gestione migliorata
+    // ✅ TIMEOUT MANAGEMENT: Configurazione dinamica
+    let timeoutMs;
+    if (isLongOperation) {
+      timeoutMs = 50000; // 50s per mega-batch
+    } else if (isUpload) {
+      timeoutMs = 30000; // 30s per upload
+    } else {
+      timeoutMs = 15000; // 15s per operazioni standard
+    }
+
+    // ✅ ABORT CONTROLLER: Gestione timeout precisa
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
-      console.log(`[PROXY] TIMEOUT dopo ${timeoutMs}ms per ${path}`);
+      console.log(`[PROXY] Timeout dopo ${timeoutMs}ms per operazione:`, path);
       controller.abort();
     }, timeoutMs);
 
-    // ✅ HEADERS: Ottimizzati per connessioni lunghe
+    // ✅ HEADERS: Configurazione ottimizzata
     const headers = {
       'Api-Key': apiKey,
     };
 
+    // Mantieni Content-Type originale per multipart/form-data
     if (event.headers['content-type']) {
       headers['Content-Type'] = event.headers['content-type'];
     }
 
-    // ✅ KEEPALIVE: Headers speciali per operazioni lunghe
+    // ✅ KEEPALIVE: Headers per mantenere viva la connessione
     if (isLongOperation) {
       headers['Connection'] = 'keep-alive';
       headers['Keep-Alive'] = 'timeout=60, max=1000';
-      headers['User-Agent'] = 'Netlify-Function-Mega-Batch/1.0';
     }
 
-    console.log(`[PROXY] Tentativo connessione a: ${targetUrl}`);
+    console.log(`[PROXY] Inoltro richiesta a: ${targetUrl}`);
+    console.log(`[PROXY] Metodo: ${event.httpMethod}, Timeout: ${timeoutMs}ms`);
 
-    // ✅ FETCH: Con retry logic per connessioni fallite
-    let lastError = null;
-    let response = null;
-    
-    const maxRetries = isLongOperation ? 2 : 1; // Retry per operazioni lunghe
-    
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        console.log(`[PROXY] Tentativo ${attempt}/${maxRetries}`);
-        
-        response = await fetch(targetUrl, {
-          method: event.httpMethod,
-          headers: headers,
-          body: requestBody,
-          signal: controller.signal,
-        });
-        
-        // Se arriviamo qui, la connessione è riuscita
-        break;
-        
-      } catch (fetchError) {
-        lastError = fetchError;
-        console.error(`[PROXY] Tentativo ${attempt} fallito:`, fetchError.message);
-        
-        if (attempt < maxRetries && !controller.signal.aborted) {
-          console.log(`[PROXY] Retry in 2s...`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-      }
-    }
-    
+    // ✅ FETCH: Chiamata con gestione avanzata
+    const response = await fetch(targetUrl, {
+      method: event.httpMethod,
+      headers: headers,
+      body: requestBody,
+      signal: controller.signal,
+      // ✅ KEEPALIVE: Mantieni connessione per operazioni lunghe
+      keepalive: isLongOperation
+    });
+
+    // Pulisci timeout se la richiesta è completata
     clearTimeout(timeoutId);
-    
-    // ✅ ERROR HANDLING: Se tutti i retry sono falliti
-    if (!response) {
-      throw lastError || new Error('Tutti i tentativi di connessione falliti');
-    }
 
-    console.log(`[PROXY] Risposta ricevuta: HTTP ${response.status}`);
-    
-    // ✅ RESPONSE HEADERS: Ottimizzati
+    // ✅ RESPONSE HEADERS: Ottimizzati per mega-batch
     const responseHeaders = {
       "Content-Type": response.headers.get("content-type") || "application/json",
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
     };
 
+    // ✅ CACHE CONTROL: Evita caching per operazioni dinamiche
     if (isLongOperation) {
       responseHeaders["Cache-Control"] = "no-cache, no-store, must-revalidate";
-      responseHeaders["X-Operation-Type"] = "mega-batch";
+      responseHeaders["Pragma"] = "no-cache";
+      responseHeaders["Expires"] = "0";
     }
 
-    // ✅ BODY HANDLING: Gestione sicura con timeout
-    let responseBody;
-    const bodyTimeout = setTimeout(() => {
-      console.error('[PROXY] Timeout lettura body');
-    }, 10000);
+    // ✅ LOGGING: Risultato operazione
+    const statusCode = response.status;
+    console.log(`[PROXY] Risposta ricevuta: ${statusCode}`);
     
+    if (isLongOperation) {
+      console.log('[MEGA-BATCH] Operazione completata con successo');
+    }
+
+    // ✅ BODY HANDLING: Gestione sicura del contenuto
+    let responseBody;
     try {
       responseBody = await response.text();
-      clearTimeout(bodyTimeout);
     } catch (bodyError) {
-      clearTimeout(bodyTimeout);
       console.error('[PROXY] Errore lettura body:', bodyError);
-      responseBody = JSON.stringify({ 
-        error: 'Errore lettura risposta dal server',
-        details: bodyError.message 
-      });
-    }
-
-    // ✅ SUCCESS LOGGING: per debug
-    if (isLongOperation && response.ok) {
-      console.log('[MEGA-BATCH] ✅ SUCCESSO! Operazione completata');
-      console.log(`[MEGA-BATCH] Response size: ${responseBody.length} chars`);
+      responseBody = JSON.stringify({ error: 'Errore lettura risposta dal server' });
     }
 
     return {
-      statusCode: response.status,
+      statusCode: statusCode,
       headers: responseHeaders,
       body: responseBody,
     };
@@ -172,85 +142,52 @@ exports.handler = async function (event, context) {
   } catch (error) {
     console.error('[PROXY] Errore generale:', error);
 
-    // ✅ TIMEOUT HANDLING: Gestione specifica
+    // ✅ ERROR HANDLING: Gestione specifica per timeout
     if (error.name === 'AbortError') {
-      console.error('[PROXY] ⏰ TIMEOUT dopo', timeoutMs, 'ms');
+      console.error('[PROXY] Timeout raggiunto per operazione:', path);
       return { 
         statusCode: 408, 
         headers: {
           "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-          "X-Error-Type": "timeout"
+          "Access-Control-Allow-Origin": "*"
         },
         body: JSON.stringify({ 
           error: 'Timeout dell\'operazione',
-          details: `Operazione ${path} ha superato ${timeoutMs}ms`,
+          details: `Operazione ${path} ha superato il limite di ${isLongOperation ? '50s' : '15s'}`,
           type: 'timeout',
-          timeout_ms: timeoutMs,
-          suggested_action: 'Attiva modalità fallback per bypassing Netlify limits'
+          suggested_action: 'Prova la modalità fallback per volumi molto grandi'
         })
       };
     }
 
-    // ✅ NETWORK ERRORS: Gestione specifica errori connessione
-    if (error.code === 'ENOTFOUND') {
-      console.error('[PROXY] 🌐 DNS resolution failed per pdfRest API');
+    // ✅ NETWORK ERRORS: Gestione errori di rete
+    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      console.error('[PROXY] Errore di connessione a pdfRest API');
       return {
         statusCode: 503,
         headers: {
           "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-          "X-Error-Type": "dns"
+          "Access-Control-Allow-Origin": "*"
         },
         body: JSON.stringify({
-          error: 'Impossibile raggiungere pdfRest API',
-          details: 'DNS resolution failed - possibile problema di rete',
-          type: 'network_dns_error',
-          suggested_action: 'Verifica connettività o prova fallback'
+          error: 'Servizio pdfRest temporaneamente non disponibile',
+          details: 'Impossibile raggiungere l\'API pdfRest',
+          type: 'network_error'
         })
       };
     }
 
-    if (error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET') {
-      console.error('[PROXY] 🔌 Connection refused/reset da pdfRest API');
-      return {
-        statusCode: 503,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-          "X-Error-Type": "connection"
-        },
-        body: JSON.stringify({
-          error: 'pdfRest API non raggiungibile',
-          details: `Connection error: ${error.code}`,
-          type: 'network_connection_error',
-          suggested_action: 'Verifica status pdfRest API o prova fallback'
-        })
-      };
-    }
-
-    // ✅ GENERIC ERRORS: Con più dettagli per debug
-    console.error('[PROXY] Generic error details:', {
-      name: error.name,
-      message: error.message,
-      code: error.code,
-      stack: error.stack?.split('\n')[0]
-    });
-
+    // ✅ GENERIC ERRORS: Fallback generico
     return { 
       statusCode: 502, 
       headers: {
         "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-        "X-Error-Type": "generic"
+        "Access-Control-Allow-Origin": "*"
       },
       body: JSON.stringify({ 
-        error: `Errore proxy: ${error.message}`,
-        details: error.stack ? error.stack.split('\n')[0] : 'Stack trace non disponibile',
-        type: 'proxy_error',
-        error_name: error.name,
-        error_code: error.code || 'unknown',
-        suggested_action: isLongOperation ? 'Prova modalità fallback' : 'Riprova operazione'
+        error: `Errore nella funzione proxy: ${error.message}`,
+        details: error.stack ? error.stack.split('\n')[0] : 'Dettagli non disponibili',
+        type: 'proxy_error'
       })
     };
   }
