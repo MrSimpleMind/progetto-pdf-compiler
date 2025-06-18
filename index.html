@@ -453,20 +453,312 @@
 
         function findRepeatableTables(xmlDoc) {
             const tables = [];
-            const rootElements = xmlDoc.documentElement.children;
             
-            // Analizza tutti gli elementi di primo livello
-            for (let i = 0; i < rootElements.length; i++) {
-                const element = rootElements[i];
+            // ✅ SMART FILTERING: Blacklist e Whitelist patterns
+            const blacklistPatterns = [
+                'warning', 'invalidati', 'error', 'metadata', 'config', 'validation',
+                'campi_warning', 'campi_invalidati', 'campi_error', 'field_validation',
+                'xfaform', 'template', 'datasets', 'connectionset', 'xsl', 'locale'
+            ];
+            
+            const whitelistPatterns = [
+                'personale', 'anagrafica', 'struttura', 'rette', 'dati', 'economici',
+                'impiantistiche', 'udo', 'ricavi', 'costi', 'standard', 'non_standard'
+            ];
+            
+            log('🔍 Applicazione filtri intelligenti...', 'discovery');
+            log(`❌ Blacklist: ${blacklistPatterns.length} pattern da escludere`, 'discovery');
+            log(`✅ Whitelist: ${whitelistPatterns.length} pattern preferiti`, 'discovery');
+            
+            // ✅ ANALISI STRUTTURA: Prima trova tutti gli elementi candidati
+            const allElements = Array.from(xmlDoc.getElementsByTagName('*'));
+            const candidateElements = [];
+            
+            // Filtra elementi per struttura e nomi
+            allElements.forEach(element => {
+                const tagName = element.tagName.toLowerCase();
                 
-                // Skip elementi non significativi
-                if (element.tagName === 'datasets' || element.tagName === 'template') {
-                    continue;
+                // Skip elementi ovviamente non-tabella
+                if (element.children.length < 2) return;
+                
+                // Applica blacklist
+                const isBlacklisted = blacklistPatterns.some(pattern => 
+                    tagName.includes(pattern.toLowerCase())
+                );
+                if (isBlacklisted) {
+                    log(`❌ Blacklist: ${element.tagName} escluso`, 'discovery');
+                    return;
                 }
                 
-                // Elementi che potrebbero essere tabelle
-                if (element.children.length > 3) { // Soglia minima campi
-                    const fields = extractFieldsFromElement(element);
+                // Preferenza per whitelist
+                const isWhitelisted = whitelistPatterns.some(pattern => 
+                    tagName.includes(pattern.toLowerCase())
+                );
+                
+                // Calcola score di qualità
+                const qualityScore = calculateTableQuality(element, isWhitelisted);
+                
+                if (qualityScore > 5) { // Soglia qualità
+                    candidateElements.push({
+                        element: element,
+                        score: qualityScore,
+                        isWhitelisted: isWhitelisted
+                    });
+                }
+            });
+            
+            // Ordina per score e prendi i migliori
+            candidateElements.sort((a, b) => b.score - a.score);
+            const topCandidates = candidateElements.slice(0, 12); // Max 12 tabelle
+            
+            log(`🎯 Candidati filtrati: ${topCandidates.length} da ${allElements.length} totali`, 'discovery');
+            
+            // ✅ ESTRAZIONE PROFONDA: Analizza ogni candidato
+            topCandidates.forEach(candidate => {
+                const element = candidate.element;
+                const fields = extractFieldsDeep(element);
+                
+                if (fields.length >= 3) { // Min 3 campi reali
+                    const table = {
+                        id: element.tagName,
+                        name: formatTableName(element.tagName),
+                        fields: fields,
+                        elementPath: getElementPath(element),
+                        estimatedRecords: estimateRecordCapacity(fields.length),
+                        qualityScore: candidate.score,
+                        isPreferred: candidate.isWhitelisted
+                    };
+                    
+                    tables.push(table);
+                    
+                    const preferredMarker = candidate.isWhitelisted ? '⭐' : '';
+                    log(`🏷️ Tabella ${preferredMarker}: ${element.tagName} (${fields.length} campi, score: ${candidate.score})`, 'discovery');
+                }
+            });
+            
+            // Se ancora non troviamo nulla, fallback più aggressivo
+            if (tables.length === 0) {
+                log('⚠️ Nessuna tabella di qualità trovata, fallback alla ricerca estesa...', 'warn');
+                return findTablesFallback(xmlDoc);
+            }
+            
+            log(`✅ Filtro intelligente completato: ${tables.length} tabelle di qualità`, 'success');
+            return tables;
+        }
+
+        // ✅ NUOVO: Calcola score di qualità per una tabella
+        function calculateTableQuality(element, isWhitelisted) {
+            let score = 0;
+            const tagName = element.tagName.toLowerCase();
+            
+            // Base score per struttura
+            score += Math.min(element.children.length, 15); // Max 15 punti per figli
+            
+            // Bonus per whitelist
+            if (isWhitelisted) score += 20;
+            
+            // Bonus per nomi sensati
+            if (tagName.includes('personale')) score += 15;
+            if (tagName.includes('anagrafica')) score += 10;
+            if (tagName.includes('struttura')) score += 8;
+            if (tagName.includes('standard')) score += 5;
+            
+            // Penalty per nomi sospetti (ma non blacklisted)
+            if (tagName.includes('temp')) score -= 5;
+            if (tagName.includes('test')) score -= 5;
+            if (tagName.length < 3) score -= 10;
+            
+            // Bonus per profondità struttura appropriata
+            const depth = getElementDepth(element);
+            if (depth >= 2 && depth <= 4) score += 5;
+            
+            return score;
+        }
+
+        // ✅ NUOVO: Estrazione profonda e intelligente dei campi
+        function extractFieldsDeep(element) {
+            const fields = [];
+            const processedNames = new Set();
+            
+            // ✅ STRATEGIA 1: Analisi diretta figli
+            Array.from(element.children).forEach(child => {
+                const directFields = analyzeElementForFields(child, processedNames);
+                fields.push(...directFields);
+            });
+            
+            // ✅ STRATEGIA 2: Ricerca ricorsiva limitata (max 2 livelli)
+            Array.from(element.children).forEach(child => {
+                if (child.children.length > 0 && child.children.length <= 8) {
+                    Array.from(child.children).forEach(grandchild => {
+                        const deepFields = analyzeElementForFields(grandchild, processedNames);
+                        fields.push(...deepFields);
+                    });
+                }
+            });
+            
+            // ✅ STRATEGIA 3: Pattern recognition XFA
+            const xfaFields = findXFAPatterns(element, processedNames);
+            fields.push(...xfaFields);
+            
+            // Deduplicazione e pulizia
+            const uniqueFields = fields.filter(field => 
+                field.name && 
+                field.name.length > 1 && 
+                !field.name.toLowerCase().includes('temp') &&
+                !field.name.toLowerCase().includes('placeholder')
+            );
+            
+            log(`🔧 Estrazione profonda: ${uniqueFields.length} campi unici da ${element.tagName}`, 'discovery');
+            
+            return uniqueFields;
+        }
+
+        // ✅ NUOVO: Analizza un elemento per campi potenziali
+        function analyzeElementForFields(element, processedNames) {
+            const fields = [];
+            const tagName = element.tagName;
+            
+            // Skip se già processato o nome non valido
+            if (processedNames.has(tagName) || !isValidFieldName(tagName)) {
+                return fields;
+            }
+            
+            // ✅ CAMPO LEAF: Elemento senza figli con contenuto
+            if (element.children.length === 0) {
+                const textContent = element.textContent?.trim() || '';
+                
+                fields.push({
+                    name: tagName,
+                    displayName: formatFieldName(tagName),
+                    value: textContent,
+                    type: inferFieldType(textContent, tagName),
+                    source: 'leaf'
+                });
+                
+                processedNames.add(tagName);
+            }
+            
+            // ✅ CAMPO CONTAINER: Elemento con struttura semplice
+            else if (element.children.length <= 3) {
+                // Cerca pattern input/value/content
+                const valueChild = Array.from(element.children).find(child => 
+                    child.tagName.toLowerCase().includes('value') ||
+                    child.tagName.toLowerCase().includes('content') ||
+                    child.textContent?.trim()
+                );
+                
+                if (valueChild) {
+                    fields.push({
+                        name: tagName,
+                        displayName: formatFieldName(tagName),
+                        value: valueChild.textContent?.trim() || '',
+                        type: inferFieldType(valueChild.textContent, tagName),
+                        source: 'container'
+                    });
+                    
+                    processedNames.add(tagName);
+                }
+            }
+            
+            return fields;
+        }
+
+        // ✅ NUOVO: Trova pattern specifici XFA
+        function findXFAPatterns(element, processedNames) {
+            const fields = [];
+            
+            // Pattern comuni XFA per form italiani
+            const xfaPatterns = [
+                { pattern: /cognome/i, type: 'text', display: 'Cognome' },
+                { pattern: /nome/i, type: 'text', display: 'Nome' },
+                { pattern: /(codice|cf|fiscale)/i, type: 'text', display: 'Codice Fiscale' },
+                { pattern: /(qualifica|ruolo|posizione)/i, type: 'text', display: 'Qualifica' },
+                { pattern: /(rapporto|tipo.*rapporto)/i, type: 'text', display: 'Tipo Rapporto' },
+                { pattern: /(contratto|tipo.*contratto)/i, type: 'text', display: 'Tipo Contratto' },
+                { pattern: /(ore.*sett|settimanali)/i, type: 'number', display: 'Ore Settimanali' },
+                { pattern: /(settimane|sett.*anno)/i, type: 'number', display: 'Settimane Anno' },
+                { pattern: /(ore.*tot|totali)/i, type: 'number', display: 'Ore Totali' },
+                { pattern: /(straord|extraordinari)/i, type: 'number', display: 'Ore Straordinarie' }
+            ];
+            
+            // Cerca tutti gli elementi che matchano i pattern
+            const allDescendants = element.getElementsByTagName('*');
+            
+            Array.from(allDescendants).forEach(desc => {
+                const tagName = desc.tagName;
+                
+                if (processedNames.has(tagName)) return;
+                
+                xfaPatterns.forEach(pattern => {
+                    if (pattern.pattern.test(tagName)) {
+                        fields.push({
+                            name: tagName,
+                            displayName: pattern.display,
+                            value: desc.textContent?.trim() || '',
+                            type: pattern.type,
+                            source: 'xfa_pattern'
+                        });
+                        
+                        processedNames.add(tagName);
+                        log(`🎯 Pattern XFA: ${tagName} → ${pattern.display}`, 'discovery');
+                    }
+                });
+            });
+            
+            return fields;
+        }
+
+        // ✅ NUOVO: Valida se un nome campo è sensato
+        function isValidFieldName(name) {
+            if (!name || name.length < 2) return false;
+            
+            const invalidPatterns = [
+                /^(div|span|p|table|tr|td|th)$/i,
+                /^(form|input|select|option)$/i,
+                /^(meta|link|script|style)$/i,
+                /temp/i, /test/i, /debug/i, /dummy/i
+            ];
+            
+            return !invalidPatterns.some(pattern => pattern.test(name));
+        }
+
+        // ✅ NUOVO: Calcola profondità elemento
+        function getElementDepth(element) {
+            let depth = 0;
+            let current = element.parentElement;
+            while (current && depth < 10) {
+                depth++;
+                current = current.parentElement;
+            }
+            return depth;
+        }
+
+        // ✅ NUOVO: Ottieni path completo elemento
+        function getElementPath(element) {
+            const path = [];
+            let current = element;
+            while (current && current.tagName && path.length < 5) {
+                path.unshift(current.tagName);
+                current = current.parentElement;
+            }
+            return path.join(' > ');
+        }
+
+        // ✅ NUOVO: Fallback per casi difficili
+        function findTablesFallback(xmlDoc) {
+            log('🔄 Modalità fallback: ricerca pattern elementari...', 'warn');
+            
+            const tables = [];
+            const commonTableNames = ['personale', 'anagrafica', 'struttura', 'dati'];
+            
+            commonTableNames.forEach(name => {
+                const elements = Array.from(xmlDoc.getElementsByTagName('*')).filter(el => 
+                    el.tagName.toLowerCase().includes(name) && el.children.length >= 2
+                );
+                
+                if (elements.length > 0) {
+                    const element = elements[0]; // Prendi il primo
+                    const fields = extractFieldsFromElement(element); // Usa metodo originale
                     
                     if (fields.length > 0) {
                         tables.push({
@@ -474,37 +766,36 @@
                             name: formatTableName(element.tagName),
                             fields: fields,
                             elementPath: element.tagName,
-                            estimatedRecords: estimateRecordCapacity(element)
+                            estimatedRecords: '10+',
+                            source: 'fallback'
                         });
-                        
-                        log(`🏷️ Tabella rilevata: ${element.tagName} (${fields.length} campi)`, 'discovery');
                     }
                 }
-            }
-            
-            // Se non troviamo tabelle standard, cerca pattern alternativi
-            if (tables.length === 0) {
-                log('⚠️ Nessuna tabella standard trovata, ricerca pattern alternativi...', 'warn');
-                return findAlternativePatterns(xmlDoc);
-            }
+            });
             
             return tables;
         }
 
+        // ✅ MANTENUTA per compatibilità con fallback
         function extractFieldsFromElement(element) {
             const fields = [];
             
             for (let i = 0; i < element.children.length; i++) {
                 const child = element.children[i];
                 
-                // Solo elementi leaf (senza figli)
-                if (child.children.length === 0 && child.textContent.trim() !== '') {
-                    fields.push({
-                        name: child.tagName,
-                        displayName: formatFieldName(child.tagName),
-                        value: child.textContent.trim(),
-                        type: inferFieldType(child.textContent)
-                    });
+                // Solo elementi leaf (senza figli) con contenuto valido
+                if (child.children.length === 0) {
+                    const textContent = child.textContent?.trim() || '';
+                    
+                    if (isValidFieldName(child.tagName)) {
+                        fields.push({
+                            name: child.tagName,
+                            displayName: formatFieldName(child.tagName),
+                            value: textContent,
+                            type: inferFieldType(textContent, child.tagName),
+                            source: 'legacy'
+                        });
+                    }
                 }
             }
             
@@ -531,49 +822,75 @@
                 .join(' ');
         }
 
-        function inferFieldType(value) {
-            if (!value) return 'text';
-            if (!isNaN(value) && !isNaN(parseFloat(value))) return 'number';
-            if (value.match(/^\d{4}-\d{2}-\d{2}$/)) return 'date';
-            if (value.match(/^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/)) return 'email';
-            return 'text';
-        }
-
-        function estimateRecordCapacity(element) {
-            // Logica euristica per stimare quanti record può contenere
-            const fieldCount = element.children.length;
-            if (fieldCount > 10) return '100+';
-            if (fieldCount > 5) return '50+';
-            return '20+';
-        }
-
-        function findAlternativePatterns(xmlDoc) {
-            // Fallback: cerca pattern più generici
-            const tables = [];
+        function inferFieldType(value, fieldName = '') {
+            if (!value && !fieldName) return 'text';
             
-            // Pattern 1: Elementi con molti figli
-            const allElements = xmlDoc.getElementsByTagName('*');
-            for (let element of allElements) {
-                if (element.children.length >= 5) {
-                    const fields = extractFieldsFromElement(element);
-                    if (fields.length >= 3) {
-                        tables.push({
-                            id: element.tagName || 'generic_table',
-                            name: formatTableName(element.tagName || 'Tabella Generica'),
-                            fields: fields,
-                            elementPath: element.tagName,
-                            estimatedRecords: '10+'
-                        });
-                    }
+            // ✅ ANALISI NOME CAMPO per tipo
+            const name = fieldName.toLowerCase();
+            
+            // Pattern numerici basati su nome
+            if (name.includes('ore') || name.includes('sett') || name.includes('numero') || name.includes('num')) {
+                return 'number';
+            }
+            
+            // Pattern date
+            if (name.includes('data') || name.includes('scadenza') || name.includes('nascita')) {
+                return 'date';
+            }
+            
+            // Pattern email
+            if (name.includes('email') || name.includes('mail') || name.includes('pec')) {
+                return 'email';
+            }
+            
+            // Pattern telefono
+            if (name.includes('tel') || name.includes('cell') || name.includes('fax')) {
+                return 'phone';
+            }
+            
+            // ✅ ANALISI VALORE se presente
+            if (value) {
+                const val = value.trim();
+                
+                // Numero
+                if (!isNaN(val) && !isNaN(parseFloat(val)) && val !== '') {
+                    return 'number';
+                }
+                
+                // Data italiana
+                if (val.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/) || val.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    return 'date';
+                }
+                
+                // Email
+                if (val.match(/^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/)) {
+                    return 'email';
+                }
+                
+                // Codice fiscale italiano
+                if (val.match(/^[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]$/)) {
+                    return 'fiscal_code';
+                }
+                
+                // Telefono
+                if (val.match(/^[\+]?[\d\s\-\(\)]{6,}$/)) {
+                    return 'phone';
                 }
             }
             
-            return tables;
+            return 'text';
         }
 
-        // =============================================
-        // DISCOVERY RESULTS DISPLAY
-        // =============================================
+        function estimateRecordCapacity(fieldCount) {
+            // ✅ STIMA INTELLIGENTE basata su numero e tipo campi
+            if (fieldCount >= 10) return '200+';
+            if (fieldCount >= 7) return '100+';
+            if (fieldCount >= 5) return '50+';
+            if (fieldCount >= 3) return '20+';
+            return '10+';
+        }
+
+        // ✅ LOGGING: Enhanced discovery summary
         function displayDiscoveryResults() {
             const container = document.getElementById('discoveryResults');
             
@@ -591,45 +908,73 @@
             
             let html = `
                 <div class="bg-blue-50 border border-blue-200 p-4 rounded-lg mb-6">
-                    <h3 class="font-bold text-blue-700 mb-2">🎉 Auto-Discovery Completata!</h3>
-                    <p class="text-blue-800">Trovate <strong>${state.discoveredTables.length}</strong> tabelle nel PDF. 
-                    Ora puoi caricare un CSV per ogni tabella.</p>
+                    <h3 class="font-bold text-blue-700 mb-2">🎉 Auto-Discovery Intelligente Completata!</h3>
+                    <p class="text-blue-800">
+                        Algoritmo migliorato ha identificato <strong>${state.discoveredTables.length}</strong> tabelle di qualità 
+                        (filtrate da pattern rumorosi). Ora puoi caricare CSV per le tabelle che ti interessano.
+                    </p>
                 </div>
                 
                 <div class="grid gap-4">
             `;
             
-            state.discoveredTables.forEach((table, index) => {
+            // Ordina tabelle per qualità e preferenza
+            const sortedTables = [...state.discoveredTables].sort((a, b) => {
+                if (a.isPreferred && !b.isPreferred) return -1;
+                if (!a.isPreferred && b.isPreferred) return 1;
+                return (b.qualityScore || 0) - (a.qualityScore || 0);
+            });
+            
+            sortedTables.forEach((table, index) => {
+                const qualityBadge = table.qualityScore > 15 ? 'ALTA' : table.qualityScore > 10 ? 'MEDIA' : 'BASE';
+                const qualityColor = table.qualityScore > 15 ? 'green' : table.qualityScore > 10 ? 'blue' : 'gray';
+                const preferredIcon = table.isPreferred ? '⭐' : '';
+                
                 html += `
                     <div class="border border-gray-200 rounded-lg p-4">
                         <div class="flex justify-between items-start mb-3">
                             <div>
-                                <h4 class="text-lg font-bold text-gray-800">${table.name}</h4>
+                                <h4 class="text-lg font-bold text-gray-800">${preferredIcon} ${table.name}</h4>
                                 <p class="text-sm text-gray-600">
                                     ID: <code class="bg-gray-100 px-2 py-1 rounded">${table.id}</code> | 
                                     Campi: <strong>${table.fields.length}</strong> | 
-                                    Capacità: <strong>${table.estimatedRecords}</strong> record
+                                    Capacità: <strong>${table.estimatedRecords}</strong>
                                 </p>
+                                ${table.elementPath ? `<p class="text-xs text-gray-500">Path: ${table.elementPath}</p>` : ''}
                             </div>
-                            <span class="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm font-bold">
-                                Tabella ${index + 1}
-                            </span>
+                            <div class="text-right">
+                                <span class="bg-${qualityColor}-100 text-${qualityColor}-700 px-3 py-1 rounded-full text-sm font-bold">
+                                    ${qualityBadge}
+                                </span>
+                                <div class="text-xs text-gray-500 mt-1">Score: ${table.qualityScore || 'N/A'}</div>
+                            </div>
                         </div>
                         
                         <div class="bg-gray-50 p-3 rounded max-h-32 overflow-y-auto">
-                            <h5 class="font-bold text-sm mb-2">Campi rilevati:</h5>
-                            <div class="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+                            <h5 class="font-bold text-sm mb-2">Campi estratti (${table.fields.length}):</h5>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                 `;
                 
                 table.fields.forEach(field => {
-                    const typeColor = field.type === 'number' ? 'bg-blue-100 text-blue-700' :
-                                     field.type === 'date' ? 'bg-green-100 text-green-700' :
-                                     'bg-gray-100 text-gray-700';
+                    const typeColors = {
+                        'number': 'bg-blue-100 text-blue-700',
+                        'date': 'bg-green-100 text-green-700', 
+                        'email': 'bg-purple-100 text-purple-700',
+                        'phone': 'bg-orange-100 text-orange-700',
+                        'fiscal_code': 'bg-red-100 text-red-700',
+                        'text': 'bg-gray-100 text-gray-700'
+                    };
+                    
+                    const typeColor = typeColors[field.type] || 'bg-gray-100 text-gray-700';
+                    const sourceIcon = field.source === 'xfa_pattern' ? '🎯' : 
+                                     field.source === 'deep' ? '🔍' : 
+                                     field.source === 'container' ? '📦' : '📄';
                     
                     html += `
                         <div class="flex items-center space-x-1">
-                            <span class="${typeColor} px-2 py-1 rounded text-xs">${field.type}</span>
-                            <span class="truncate">${field.displayName}</span>
+                            <span class="${typeColor} px-2 py-1 rounded text-xs font-bold">${field.type}</span>
+                            <span class="truncate text-gray-700">${field.displayName}</span>
+                            <span class="text-xs" title="Source: ${field.source}">${sourceIcon}</span>
                         </div>
                     `;
                 });
@@ -955,40 +1300,118 @@
             checkMappingComplete();
         }
 
+        // ✅ MIGLIORATO: Auto-mapping più intelligente con nuovi tipi campo
         function generateAutoMapping(csvHeaders, pdfFields) {
             const mapping = {};
+            
+            log('🔗 Avvio auto-mapping intelligente...', 'info');
+            log(`📊 CSV headers: ${csvHeaders.length}, PDF fields: ${pdfFields.length}`, 'info');
             
             csvHeaders.forEach(csvHeader => {
                 const normalizedCSV = normalizeFieldName(csvHeader);
                 let bestMatch = null;
                 let bestScore = 0;
+                let matchType = '';
                 
                 pdfFields.forEach(pdfField => {
-                    const normalizedPDF = normalizeFieldName(pdfField.displayName);
-                    const score = calculateSimilarity(normalizedCSV, normalizedPDF);
+                    // ✅ STRATEGIA 1: Nome field originale
+                    const normalizedPDF = normalizeFieldName(pdfField.name);
+                    const nameScore = calculateSimilarity(normalizedCSV, normalizedPDF);
                     
-                    if (score > bestScore && score > 0.6) { // Threshold 60%
+                    // ✅ STRATEGIA 2: Display name
+                    const normalizedDisplay = normalizeFieldName(pdfField.displayName);
+                    const displayScore = calculateSimilarity(normalizedCSV, normalizedDisplay);
+                    
+                    // ✅ STRATEGIA 3: Pattern matching specifico
+                    const patternScore = calculatePatternMatch(csvHeader, pdfField);
+                    
+                    // Scegli il punteggio migliore
+                    const maxScore = Math.max(nameScore, displayScore, patternScore);
+                    
+                    if (maxScore > bestScore && maxScore > 0.5) { // Soglia ridotta a 50%
                         bestMatch = pdfField.name;
-                        bestScore = score;
+                        bestScore = maxScore;
+                        
+                        if (patternScore === maxScore) matchType = 'pattern';
+                        else if (displayScore === maxScore) matchType = 'display';
+                        else matchType = 'name';
                     }
                 });
                 
                 mapping[csvHeader] = bestMatch;
                 
                 if (bestMatch) {
-                    log(`🔗 Auto-mapping: ${csvHeader} → ${bestMatch} (${Math.round(bestScore * 100)}%)`, 'success');
+                    log(`🔗 Auto-mapping (${matchType}): ${csvHeader} → ${bestMatch} (${Math.round(bestScore * 100)}%)`, 'success');
+                } else {
+                    log(`⚠️ No match per: ${csvHeader}`, 'warn');
                 }
             });
+            
+            const totalMatched = Object.values(mapping).filter(v => v).length;
+            log(`✅ Auto-mapping completato: ${totalMatched}/${csvHeaders.length} (${Math.round((totalMatched/csvHeaders.length)*100)}%)`, 'success');
             
             return mapping;
         }
 
+        // ✅ NUOVO: Pattern matching specifico per campi italiani
+        function calculatePatternMatch(csvField, pdfField) {
+            const csv = csvField.toLowerCase();
+            const pdf = pdfField.name.toLowerCase();
+            const display = pdfField.displayName.toLowerCase();
+            
+            // Pattern specifici italiani
+            const patterns = [
+                // Cognome/Nome
+                { csv: /cognome/i, pdf: /cognome|surname|lastname/i, score: 0.95 },
+                { csv: /nome/i, pdf: /nome|name|firstname/i, score: 0.95 },
+                
+                // Codice fiscale
+                { csv: /(c\.f|cf|codice.?fiscale)/i, pdf: /(codice.?fiscale|cf|fiscal)/i, score: 0.9 },
+                
+                // Qualifica
+                { csv: /qualifica/i, pdf: /(qualifica|ruolo|posizione|job)/i, score: 0.85 },
+                
+                // Ore
+                { csv: /(ore.*sett|sett.*ore)/i, pdf: /(ore.*sett|sett.*ore|weekly.*hours)/i, score: 0.9 },
+                { csv: /(ore.*tot|tot.*ore)/i, pdf: /(ore.*tot|tot.*ore|total.*hours)/i, score: 0.9 },
+                { csv: /straord/i, pdf: /(straord|overtime|extra)/i, score: 0.85 },
+                
+                // Settimane
+                { csv: /sett/i, pdf: /(sett|week)/i, score: 0.8 },
+                
+                // Rapporti/Contratti
+                { csv: /(tipo.*rapporto|rapporto)/i, pdf: /(rapporto|relationship|employment)/i, score: 0.8 },
+                { csv: /(tipo.*contratto|contratto)/i, pdf: /(contratto|contract)/i, score: 0.8 }
+            ];
+            
+            for (let pattern of patterns) {
+                if (pattern.csv.test(csv) && (pattern.pdf.test(pdf) || pattern.pdf.test(display))) {
+                    return pattern.score;
+                }
+            }
+            
+            return 0;
+        }
+
         function normalizeFieldName(name) {
+            if (!name) return '';
+            
             return name.toLowerCase()
+                      // Rimuovi caratteri speciali e spazi
                       .replace(/[^a-z0-9]/g, '')
+                      // Normalizza abbreviazioni comuni
                       .replace(/^(n|num|numero)/i, '')
-                      .replace(/(sett|settimana)/i, 'settimana')
-                      .replace(/(ore|hour)/i, 'ore');
+                      .replace(/(sett|settimana|settimane)/i, 'settimana')
+                      .replace(/(ore|hour|hours)/i, 'ore')
+                      .replace(/(cf|codicefiscale)/i, 'codicefiscale')
+                      .replace(/(qual|qualifica)/i, 'qualifica')
+                      .replace(/(rapp|rapporto)/i, 'rapporto')
+                      .replace(/(contr|contratto)/i, 'contratto')
+                      .replace(/(tot|totale|totali)/i, 'totale')
+                      .replace(/(straord|straordinarie|straordinari)/i, 'straordinari')
+                      // Rimuovi parole vuote
+                      .replace(/(da|di|per|con|del|della|dei|delle)/g, '')
+                      .trim();
         }
 
         function calculateSimilarity(str1, str2) {
