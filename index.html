@@ -406,132 +406,76 @@
             log(`📄 Pagine: ${data.page_count} | File: ${data.filename}`, 'info');
         }
 
-        // ✅ MODIFICA: extractFormStructure() per salvare anche i valori esistenti
+        // ✅ MODIFICA: extractFormStructure() per salvare l'XML completo originale
         async function extractFormStructure() {
-    const form = new FormData();
-    form.append('id', state.pdfResourceId);
-    form.append('data_format', 'xml');
-    form.append('output', 'struttura_discovery');
+            const form = new FormData();
+            form.append('id', state.pdfResourceId);
+            form.append('data_format', 'xml');
+            form.append('output', 'struttura_discovery');
 
-    const response = await fetch(`${API_BASE}/exported-form-data`, {
-        method: 'POST',
-        body: form
-    });
+            const response = await fetch(`${API_BASE}/exported-form-data`, {
+                method: 'POST',
+                body: form
+            });
 
-    if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Estrazione struttura fallita: ${text}`);
-    }
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Estrazione struttura fallita: ${text}`);
+            }
 
-    const data = await response.json();
-    
-    // Download XML structure
-    const xmlResponse = await fetch(data.outputUrl);
-    const xmlText = await xmlResponse.text();
-    
-    state.pdfStructure = xmlText;
-    
-    // ✅ NUOVO: Salva l'XML completo originale per il merge
-    state.originalCompleteXML = xmlText;
-    
-    // ✅ NUOVO: Estrai statistiche sui valori esistenti (per UI)
-    await extractExistingValuesStats(xmlText);
-    
-    log('✅ Struttura XFA completa estratta per merge intelligente', 'success');
-}
+            const data = await response.json();
+            
+            // Download XML structure
+            const xmlResponse = await fetch(data.outputUrl);
+            const xmlText = await xmlResponse.text();
+            
+            state.pdfStructure = xmlText;
+            
+            // ✅ NUOVO: Salva l'XML completo originale per il merge
+            state.originalCompleteXML = xmlText;
+            
+            // ✅ NUOVO: Estrai statistiche sui valori esistenti (per UI)
+            await extractExistingValuesStats(xmlText);
+            
+            log('✅ Struttura XFA completa estratta per merge intelligente', 'success');
+        }
 
         // ✅ NUOVO: Estrai solo statistiche per l'interfaccia utente
-async function extractExistingValuesStats(xmlStructure) {
-    log('🔍 Analisi valori esistenti per statistiche UI...', 'preservation');
-    
-    try {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(xmlStructure, 'text/xml');
-        
-        // Conta tutti gli elementi con valori non vuoti
-        const existingValues = {};
-        
-        function countValues(element) {
-            if (element.children.length === 0) {
-                const textContent = element.textContent?.trim();
-                if (textContent && textContent.length > 0) {
-                    existingValues[element.tagName] = textContent;
-                }
-            } else {
-                Array.from(element.children).forEach(child => {
-                    countValues(child);
-                });
-            }
-        }
-        
-        if (xmlDoc.documentElement) {
-            countValues(xmlDoc.documentElement);
-        }
-        
-        state.existingValues = existingValues; // Solo per statistiche UI
-        const valueCount = Object.keys(existingValues).length;
-        
-        log(`✅ Analisi completata: ${valueCount} valori esistenti rilevati`, 'preservation');
-        
-    } catch (error) {
-        log(`⚠️ Errore analisi valori esistenti: ${error.message}`, 'warn');
-        state.existingValues = {};
-    }
-}
-
-        // ✅ NUOVO: Funzione per estrarre valori esistenti dal PDF
-        async function extractExistingValues(xmlStructure) {
-            log('🔍 Estrazione valori esistenti dal PDF...', 'preservation');
+        async function extractExistingValuesStats(xmlStructure) {
+            log('🔍 Analisi valori esistenti per statistiche UI...', 'preservation');
             
             try {
                 const parser = new DOMParser();
                 const xmlDoc = parser.parseFromString(xmlStructure, 'text/xml');
                 
-                // Trova tutti gli elementi con valori non vuoti
+                // Conta tutti gli elementi con valori non vuoti
                 const existingValues = {};
                 
-                // Funzione ricorsiva per esplorare tutto l'XML
-                function extractValues(element, path = []) {
-                    // Se l'elemento ha testo e no figli, è un campo finale
+                function countValues(element) {
                     if (element.children.length === 0) {
                         const textContent = element.textContent?.trim();
                         if (textContent && textContent.length > 0) {
-                            const fullPath = [...path, element.tagName].join('.');
                             existingValues[element.tagName] = textContent;
-                            log(`💾 Valore esistente: ${element.tagName} = "${textContent}"`, 'preservation');
                         }
                     } else {
-                        // Esplora ricorsivamente i figli
                         Array.from(element.children).forEach(child => {
-                            extractValues(child, [...path, element.tagName]);
+                            countValues(child);
                         });
                     }
                 }
                 
-                // Inizia l'estrazione dalla radice
                 if (xmlDoc.documentElement) {
-                    extractValues(xmlDoc.documentElement);
+                    countValues(xmlDoc.documentElement);
                 }
                 
-                state.existingValues = existingValues;
+                state.existingValues = existingValues; // Solo per statistiche UI
                 const valueCount = Object.keys(existingValues).length;
                 
-                log(`✅ Estrazione completata: ${valueCount} valori esistenti preservati`, 'preservation');
-                
-                // Log di esempio di alcuni valori trovati
-                if (valueCount > 0) {
-                    const examples = Object.entries(existingValues).slice(0, 3);
-                    examples.forEach(([key, value]) => {
-                        log(`   ${key}: "${value.length > 50 ? value.substring(0, 50) + '...' : value}"`, 'preservation');
-                    });
-                    if (valueCount > 3) {
-                        log(`   ... e altri ${valueCount - 3} valori`, 'preservation');
-                    }
-                }
+                log(`✅ Analisi completata: ${valueCount} valori esistenti rilevati`, 'preservation');
                 
             } catch (error) {
-                log(`⚠️ Errore estrazione valori esistenti: ${error.message}`, 'warn');
-                state.existingValues = {}; // Fallback a oggetto vuoto
+                log(`⚠️ Errore analisi valori esistenti: ${error.message}`, 'warn');
+                state.existingValues = {};
             }
         }
 
@@ -1859,305 +1803,155 @@ async function extractExistingValuesStats(xmlStructure) {
             }
         }
 
-        // ✅ MODIFICA: generateMultiTableXML() per preservare valori esistenti
+        // ✅ NUOVO: Funzione principale che usa il merge intelligente
         function generateMultiTableXML() {
-    // ✅ NUOVO: Usa la strategia di merge intelligente
-    return generateMultiTableXMLWithSmartMerge();
-}
+            return generateMultiTableXMLWithSmartMerge();
+        }
 
         // ✅ NUOVO: Strategia di merge intelligente XML
-function generateMultiTableXMLWithSmartMerge() {
-    log('🔧 MERGE INTELLIGENTE: Preservazione struttura originale...', 'preservation');
-    
-    if (!state.originalCompleteXML) {
-        log('❌ XML originale non disponibile, fallback a generazione nuova', 'error');
-        return generateMultiTableXMLFallback();
-    }
-    
-    try {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(state.originalCompleteXML, 'text/xml');
-        
-        if (!xmlDoc.documentElement) {
-            throw new Error('XML originale non valido');
-        }
-        
-        // ✅ STEP 1: Identifica tabelle da aggiornare
-        const tablesToUpdate = [];
-        state.discoveredTables.forEach(table => {
-            const csvData = state.csvData[table.id];
-            const mapping = state.mappings[table.id];
+        function generateMultiTableXMLWithSmartMerge() {
+            log('🔧 MERGE INTELLIGENTE: Preservazione struttura originale...', 'preservation');
             
-            if (csvData && csvData.length > 0 && mapping && Object.values(mapping).some(v => v)) {
-                tablesToUpdate.push({
-                    tableId: table.id,
-                    csvData: csvData,
-                    mapping: mapping
-                });
+            if (!state.originalCompleteXML) {
+                log('❌ XML originale non disponibile, fallback a generazione nuova', 'error');
+                return generateMultiTableXMLFallback();
             }
-        });
-        
-        log(`🎯 Tabelle da aggiornare: ${tablesToUpdate.length}`, 'info');
-        
-        // ✅ STEP 2: Per ogni tabella da aggiornare, sostituisci/aggiungi i record
-        tablesToUpdate.forEach(tableInfo => {
-            log(`🔄 Processando tabella: ${tableInfo.tableId}`, 'info');
             
-            // Rimuovi tutti i record esistenti di questa tabella
-            const existingElements = xmlDoc.getElementsByTagName(tableInfo.tableId);
-            const elementsToRemove = Array.from(existingElements);
-            elementsToRemove.forEach(el => {
-                if (el.parentNode) {
-                    el.parentNode.removeChild(el);
+            try {
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(state.originalCompleteXML, 'text/xml');
+                
+                if (!xmlDoc.documentElement) {
+                    throw new Error('XML originale non valido');
                 }
-            });
-            
-            // Aggiungi i nuovi record con mapping CSV
-            const rootElement = xmlDoc.documentElement;
-            
-            tableInfo.csvData.forEach((record, index) => {
-                const tableElement = xmlDoc.createElement(tableInfo.tableId);
                 
-                // Aggiungi i campi mappati dal CSV
-                Object.entries(tableInfo.mapping).forEach(([csvField, pdfField]) => {
-                    if (pdfField && record[csvField] !== undefined) {
-                        const fieldElement = xmlDoc.createElement(pdfField);
-                        const value = record[csvField] || '';
-                        fieldElement.textContent = value;
-                        tableElement.appendChild(fieldElement);
-                    }
-                });
-                
-                rootElement.appendChild(tableElement);
-                
-                if (index % 25 === 0 && index > 0) {
-                    log(`   Processati ${index}/${tableInfo.csvData.length} record per ${tableInfo.tableId}`, 'info');
-                }
-            });
-            
-            log(`✅ Tabella ${tableInfo.tableId} aggiornata: ${tableInfo.csvData.length} record`, 'success');
-        });
-        
-        // ✅ STEP 3: Serializza l'XML modificato
-        const serializer = new XMLSerializer();
-        const modifiedXML = serializer.serializeToString(xmlDoc);
-        
-        // ✅ STATISTICHE FINALI
-        const preservedElementsCount = xmlDoc.getElementsByTagName('*').length;
-        const updatedTablesCount = tablesToUpdate.length;
-        const totalNewRecords = tablesToUpdate.reduce((sum, t) => sum + t.csvData.length, 0);
-        
-        log(`✅ MERGE INTELLIGENTE COMPLETATO:`, 'preservation');
-        log(`   📋 Struttura originale: PRESERVATA INTEGRALMENTE`, 'preservation');
-        log(`   🔄 Tabelle aggiornate: ${updatedTablesCount}`, 'info');
-        log(`   📊 Record nuovi: ${totalNewRecords}`, 'info');
-        log(`   📏 Elementi totali XML: ${preservedElementsCount}`, 'info');
-        log(`   📁 Dimensione finale: ${Math.round(modifiedXML.length / 1024)}KB`, 'info');
-        
-        return modifiedXML;
-        
-    } catch (error) {
-        log(`❌ Errore merge intelligente: ${error.message}`, 'error');
-        log('🔄 Fallback a generazione XML tradizionale...', 'warn');
-        return generateMultiTableXMLFallback();
-    }
-}
-
-// ✅ FALLBACK: Generazione XML tradizionale se il merge fallisce
-function generateMultiTableXMLFallback() {
-    log('🔄 Generazione XML fallback...', 'warn');
-    
-    let xmlData = '<?xml version="1.0" encoding="UTF-8"?>\n';
-    
-    // Prova a mantenere il namespace originale se disponibile
-    if (state.originalCompleteXML && state.originalCompleteXML.includes('xmlns=')) {
-        const nsMatch = state.originalCompleteXML.match(/xmlns="([^"]+)"/);
-        if (nsMatch) {
-            xmlData += `<root xmlns="${nsMatch[1]}">\n`;
-        } else {
-            xmlData += '<root>\n';
-        }
-    } else {
-        xmlData += '<root>\n';
-    }
-    
-    // Aggiungi solo le tabelle con CSV mappati
-    state.discoveredTables.forEach(table => {
-        const csvData = state.csvData[table.id];
-        const mapping = state.mappings[table.id];
-        
-        if (csvData && csvData.length > 0 && mapping && Object.values(mapping).some(v => v)) {
-            log(`📊 Generazione fallback per tabella: ${table.name}`, 'warn');
-            
-            csvData.forEach((record) => {
-                xmlData += `  <${table.id}>\n`;
-                
-                Object.entries(mapping).forEach(([csvField, pdfField]) => {
-                    if (pdfField && record[csvField] !== undefined) {
-                        const value = record[csvField] || '';
-                        const escapedValue = escapeXMLValue(value);
-                        xmlData += `    <${pdfField}>${escapedValue}</${pdfField}>\n`;
-                    }
-                });
-                
-                xmlData += `  </${table.id}>\n`;
-            });
-        }
-    });
-    
-    xmlData += '</root>';
-    
-    log(`⚠️ FALLBACK COMPLETATO - POSSIBILE PERDITA DATI ORIGINALI`, 'warn');
-    return xmlData;
-}
-            
-            // ✅ STRATEGIA IBRIDA: Valori esistenti + nuovi dati CSV
-            const activeTables = [];
-            let totalProcessedRecords = 0;
-            let preservedFieldsCount = 0;
-            let overwrittenFieldsCount = 0;
-            
-            // ✅ STEP 1: Aggiungi tutti i valori esistenti come base
-            if (state.existingValues && Object.keys(state.existingValues).length > 0) {
-                log('📋 Inserimento valori esistenti come base...', 'preservation');
-                
-                // Raggruppa i valori esistenti per possibili tabelle
-                const existingByTable = groupExistingValuesByTable();
-                
-                Object.entries(existingByTable).forEach(([tableName, fields]) => {
-                    // Verifica se questa tabella sarà sovrascritta dai CSV
-                    const hasActiveCSV = state.discoveredTables.some(table => 
-                        table.id === tableName && 
-                        state.csvData[table.id] && 
-                        state.csvData[table.id].length > 0
-                    );
+                // ✅ STEP 1: Identifica tabelle da aggiornare
+                const tablesToUpdate = [];
+                state.discoveredTables.forEach(table => {
+                    const csvData = state.csvData[table.id];
+                    const mapping = state.mappings[table.id];
                     
-                    if (!hasActiveCSV) {
-                        // Mantieni i valori esistenti per tabelle senza CSV
-                        xmlData += `  <${tableName}>\n`;
-                        Object.entries(fields).forEach(([fieldName, value]) => {
-                            const escapedValue = escapeXMLValue(value);
-                            xmlData += `    <${fieldName}>${escapedValue}</${fieldName}>\n`;
-                            preservedFieldsCount++;
+                    if (csvData && csvData.length > 0 && mapping && Object.values(mapping).some(v => v)) {
+                        tablesToUpdate.push({
+                            tableId: table.id,
+                            csvData: csvData,
+                            mapping: mapping
                         });
-                        xmlData += `  </${tableName}>\n`;
-                        
-                        log(`💾 Preservata tabella esistente: ${tableName} (${Object.keys(fields).length} campi)`, 'preservation');
                     }
                 });
+                
+                log(`🎯 Tabelle da aggiornare: ${tablesToUpdate.length}`, 'info');
+                
+                // ✅ STEP 2: Per ogni tabella da aggiornare, sostituisci/aggiungi i record
+                tablesToUpdate.forEach(tableInfo => {
+                    log(`🔄 Processando tabella: ${tableInfo.tableId}`, 'info');
+                    
+                    // Rimuovi tutti i record esistenti di questa tabella
+                    const existingElements = xmlDoc.getElementsByTagName(tableInfo.tableId);
+                    const elementsToRemove = Array.from(existingElements);
+                    elementsToRemove.forEach(el => {
+                        if (el.parentNode) {
+                            el.parentNode.removeChild(el);
+                        }
+                    });
+                    
+                    // Aggiungi i nuovi record con mapping CSV
+                    const rootElement = xmlDoc.documentElement;
+                    
+                    tableInfo.csvData.forEach((record, index) => {
+                        const tableElement = xmlDoc.createElement(tableInfo.tableId);
+                        
+                        // Aggiungi i campi mappati dal CSV
+                        Object.entries(tableInfo.mapping).forEach(([csvField, pdfField]) => {
+                            if (pdfField && record[csvField] !== undefined) {
+                                const fieldElement = xmlDoc.createElement(pdfField);
+                                const value = record[csvField] || '';
+                                fieldElement.textContent = value;
+                                tableElement.appendChild(fieldElement);
+                            }
+                        });
+                        
+                        rootElement.appendChild(tableElement);
+                        
+                        if (index % 25 === 0 && index > 0) {
+                            log(`   Processati ${index}/${tableInfo.csvData.length} record per ${tableInfo.tableId}`, 'info');
+                        }
+                    });
+                    
+                    log(`✅ Tabella ${tableInfo.tableId} aggiornata: ${tableInfo.csvData.length} record`, 'success');
+                });
+                
+                // ✅ STEP 3: Serializza l'XML modificato
+                const serializer = new XMLSerializer();
+                const modifiedXML = serializer.serializeToString(xmlDoc);
+                
+                // ✅ STATISTICHE FINALI
+                const preservedElementsCount = xmlDoc.getElementsByTagName('*').length;
+                const updatedTablesCount = tablesToUpdate.length;
+                const totalNewRecords = tablesToUpdate.reduce((sum, t) => sum + t.csvData.length, 0);
+                
+                log(`✅ MERGE INTELLIGENTE COMPLETATO:`, 'preservation');
+                log(`   📋 Struttura originale: PRESERVATA INTEGRALMENTE`, 'preservation');
+                log(`   🔄 Tabelle aggiornate: ${updatedTablesCount}`, 'info');
+                log(`   📊 Record nuovi: ${totalNewRecords}`, 'info');
+                log(`   📏 Elementi totali XML: ${preservedElementsCount}`, 'info');
+                log(`   📁 Dimensione finale: ${Math.round(modifiedXML.length / 1024)}KB`, 'info');
+                
+                return modifiedXML;
+                
+            } catch (error) {
+                log(`❌ Errore merge intelligente: ${error.message}`, 'error');
+                log('🔄 Fallback a generazione XML tradizionale...', 'warn');
+                return generateMultiTableXMLFallback();
+            }
+        }
+
+        // ✅ FALLBACK: Generazione XML tradizionale se il merge fallisce
+        function generateMultiTableXMLFallback() {
+            log('🔄 Generazione XML fallback...', 'warn');
+            
+            let xmlData = '<?xml version="1.0" encoding="UTF-8"?>\n';
+            
+            // Prova a mantenere il namespace originale se disponibile
+            if (state.originalCompleteXML && state.originalCompleteXML.includes('xmlns=')) {
+                const nsMatch = state.originalCompleteXML.match(/xmlns="([^"]+)"/);
+                if (nsMatch) {
+                    xmlData += `<root xmlns="${nsMatch[1]}">\n`;
+                } else {
+                    xmlData += '<root>\n';
+                }
+            } else {
+                xmlData += '<root>\n';
             }
             
-            // ✅ STEP 2: Processa tabelle con CSV (sovrascrivendo/aggiungendo)
+            // Aggiungi solo le tabelle con CSV mappati
             state.discoveredTables.forEach(table => {
                 const csvData = state.csvData[table.id];
                 const mapping = state.mappings[table.id];
                 
                 if (csvData && csvData.length > 0 && mapping && Object.values(mapping).some(v => v)) {
-                    activeTables.push(table);
+                    log(`📊 Generazione fallback per tabella: ${table.name}`, 'warn');
                     
-                    log(`📊 Processando tabella con CSV: ${table.name} (${csvData.length} record)`, 'info');
-                    
-                    csvData.forEach((record, index) => {
+                    csvData.forEach((record) => {
                         xmlData += `  <${table.id}>\n`;
                         
-                        // ✅ Prima aggiungi valori esistenti per questa tabella (se non mappati)
-                        if (state.existingValues) {
-                            Object.entries(state.existingValues).forEach(([existingField, existingValue]) => {
-                                // Solo se il campo non è sovrascritto dal CSV
-                                const isOverwritten = Object.values(mapping).includes(existingField);
-                                if (!isOverwritten && isFieldBelongsToTable(existingField, table.id)) {
-                                    const escapedValue = escapeXMLValue(existingValue);
-                                    xmlData += `    <${existingField}>${escapedValue}</${existingField}>\n`;
-                                    preservedFieldsCount++;
-                                }
-                            });
-                        }
-                        
-                        // ✅ Poi aggiungi/sovrascrivi con i dati CSV mappati
                         Object.entries(mapping).forEach(([csvField, pdfField]) => {
                             if (pdfField && record[csvField] !== undefined) {
                                 const value = record[csvField] || '';
                                 const escapedValue = escapeXMLValue(value);
                                 xmlData += `    <${pdfField}>${escapedValue}</${pdfField}>\n`;
-                                overwrittenFieldsCount++;
                             }
                         });
                         
                         xmlData += `  </${table.id}>\n`;
-                        totalProcessedRecords++;
-                        
-                        if (index % 25 === 0 && index > 0) {
-                            updateProgress(20 + (index / csvData.length) * 15, 
-                                         `Processando ${table.name}: ${index}/${csvData.length}`, 
-                                         `Tabella ${activeTables.indexOf(table) + 1}/${activeTables.length}`);
-                        }
                     });
-                    
-                    log(`✅ Tabella ${table.name} completata: ${csvData.length} record con preservazione`, 'success');
                 }
             });
             
             xmlData += '</root>';
             
-            // ✅ RIEPILOGO FINALE
-            log(`✅ XML ibrido generato con preservazione valori esistenti:`, 'preservation');
-            log(`   📊 Record nuovi: ${totalProcessedRecords} da ${activeTables.length} tabelle CSV`, 'info');
-            log(`   💾 Campi preservati: ${preservedFieldsCount}`, 'preservation');
-            log(`   🔄 Campi sovrascritti: ${overwrittenFieldsCount}`, 'info');
-            log(`   📏 Dimensione finale: ${Math.round(xmlData.length / 1024)}KB`, 'info');
-            
+            log(`⚠️ FALLBACK COMPLETATO - POSSIBILE PERDITA DATI ORIGINALI`, 'warn');
             return xmlData;
-        }
-
-        // ✅ NUOVO: Raggruppa valori esistenti per tabella
-        function groupExistingValuesByTable() {
-            const grouped = {};
-            
-            if (!state.existingValues) return grouped;
-            
-            // Prova a dedurre la tabella dal nome del campo o usa una tabella di default
-            Object.entries(state.existingValues).forEach(([fieldName, value]) => {
-                let tableName = 'default_existing';
-                
-                // Prova a dedurre da pattern del nome
-                const possibleTables = state.discoveredTables.map(t => t.id);
-                for (let table of possibleTables) {
-                    if (fieldName.toLowerCase().includes(table.toLowerCase()) || 
-                        table.toLowerCase().includes(fieldName.toLowerCase().split('_')[0])) {
-                        tableName = table;
-                        break;
-                    }
-                }
-                
-                if (!grouped[tableName]) {
-                    grouped[tableName] = {};
-                }
-                grouped[tableName][fieldName] = value;
-            });
-            
-            return grouped;
-        }
-
-        // ✅ NUOVO: Verifica se un campo appartiene a una tabella
-        function isFieldBelongsToTable(fieldName, tableId) {
-            // Logica euristica per associare campi a tabelle
-            const fieldLower = fieldName.toLowerCase();
-            const tableLower = tableId.toLowerCase();
-            
-            // Match diretto
-            if (fieldLower.includes(tableLower) || tableLower.includes(fieldLower)) {
-                return true;
-            }
-            
-            // Pattern specifici
-            if (tableLower.includes('personale') && 
-                (fieldLower.includes('cognome') || fieldLower.includes('nome') || 
-                 fieldLower.includes('fiscal') || fieldLower.includes('qualifica'))) {
-                return true;
-            }
-            
-            // Default: assume che appartenga se non c'è conflitto evidente
-            return true;
         }
 
         // ✅ NUOVO: Escaping sicuro per XML
